@@ -5,3 +5,10 @@ __pycache__/
 *.png
 *.jpg
 *.log
+*.pth
+*.pt
+logs/
+runs/
+
+# FIND-Net 字典核是模型初始化资产（非数据），需入库；其余 .npy 仍忽略
+!prism/models/init_kernel.npy
