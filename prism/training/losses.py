@@ -72,23 +72,29 @@ def q_supervision_loss(log_q, q_target, mask=None):
     return se.mean()
 
 
-def downstream_reconstruction_loss(x_hat_z, X_clean, metal_mask=None):
-    """L_down = mean_{非金属} (x̂_z − X_clean)² —— FIND-Net 唯一输出的去伪影损失（Eq.6）。
+def downstream_reconstruction_loss(x_hat_z, X_clean, metal_mask=None, air_hu_thr: float = -500.0):
+    """L_down = mean_{组织} (x̂_z − X_clean)² —— FIND-Net 唯一输出的去伪影损失（Eq.6）。
 
     递归循环定案：x̂_z = FIND-Net(CT_ma=脏图, LIct=μ_pred, Mask) 是唯一最终输出，
     L_down 直接监督它逼近本片干净组织（非金属区 I，FIND-Net Eq.6）。残差按 HU_SCALE=100
     归一化使 L_down O(1)。梯度经 x̂_z 回流：x̂_z 读 μ_pred（FIND-Net 的 LIct 输入）→
     M_μ；x̂_z 的观测作用经卡尔曼混合 μ_post = K·μ_pred + (1−K)·x̂_z → 递归 carry。
 
+    v1.1：额外屏蔽空气（X_clean < air_hu_thr，背景 −1000 HU），只监督组织，
+    避免空气主导梯度把网络拖回 Mode Collapse，唤醒高频组织学习。
+
     x_hat_z: [B,1,Z,H,W]（FIND-Net 输出，HU）；X_clean: [B,Z,1,H,W]；metal_mask: [B,Z,1,H,W]（1=金属）。
     """
-    resid = (x_hat_z - X_clean.permute(0, 2, 1, 3, 4)) / HU_SCALE
+    X_clean_p = X_clean.permute(0, 2, 1, 3, 4)          # [B,1,Z,H,W]
+    resid = (x_hat_z - X_clean_p) / HU_SCALE
     se = resid ** 2
     if metal_mask is not None:
-        mask = (1.0 - metal_mask).permute(0, 2, 1, 3, 4)     # [B,1,Z,H,W]
-        se = se * mask
-        return se.sum() / (mask.sum() + _EPS)
-    return se.mean()
+        mask = (1.0 - metal_mask).permute(0, 2, 1, 3, 4)     # [B,1,Z,H,W] 非金属
+    else:
+        mask = torch.ones_like(x_hat_z)
+    mask = mask * (X_clean_p > air_hu_thr).float()      # v1.1：屏蔽空气，只留组织
+    se = se * mask
+    return se.sum() / (mask.sum() + _EPS)
 
 
 def mu_fidelity_loss(mu, X_clean, metal_mask=None):

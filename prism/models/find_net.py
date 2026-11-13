@@ -7,7 +7,7 @@
 架构（与 FIND-Net 官方一致）：
     FINDNet.forward(CT_ma, LIct, Mask) -> (X0, ListX, ListA)
       CT_ma 金属伪影图（脏图，观测源）；LIct 线性插值图（盲区初始化）；
-      Mask 金属掩膜（1=金属）。ListX[-1] 为最终重建。
+      Mask 非金属掩膜（1=非金属/组织，0=金属，对齐官方 non_Mask）。ListX[-1] 为最终重建。
 
 PRISM 接口（递归循环定案，prism-interface-loss-final）：
     μ_pred（SSM 先验）**替换 LIct** 作为 FIND-Net 的盲区初始化输入 —— 这是「μ 走
@@ -316,6 +316,13 @@ class Xnet(nn.Module):
 # FINDNet —— 从 findnet.py 平铺（内核从 init_kernel.npy 载入）
 # ============================================================================
 
+# v1.1 标准化翻译服：原始 HU → [0,1]（(HU+1500)/5000）→ clip → ×255 → [0,255]。
+# 空气 -1000 → 25.5（≥0 可表示）；反归一化在 reconstruct 输出处 x̂ = X/255*5000 - 1500。
+HU_NORM_OFFSET = 1500.0
+HU_NORM_SCALE = 5000.0
+HU_INPUT_SCALE = 255.0   # v1.1-scale：入 ×255 / 出 ÷255，匹配官方 FIND-Net [0,255] 域
+
+
 @dataclass
 class FINDNetArgs:
     S: int = 10                 # stage 数（含初始化）
@@ -402,7 +409,12 @@ class FINDNet(nn.Module):
         return module(x)
 
     def forward(self, CT_ma, LIct, Mask):
-        # CT_ma / LIct / Mask: [B, 1, H, W]（HU；Mask 1=金属）。
+        # CT_ma / LIct / Mask: [B, 1, H, W]（HU；Mask 1=非金属/组织，0=金属）。
+        # v1.1-scale：标准化翻译服（入）——HU → [0,1] → clip → ×255 → [0,255]，
+        # 完全对齐官方 FIND-Net 输入动态范围（dataset.py: (x+1500)/5000 → clip[0,1] → *255）。
+        # 空气 −1000 → 25.5（≥0 可表示），ReLU 不再钳死负数。
+        CT_ma = torch.clamp((CT_ma + HU_NORM_OFFSET) / HU_NORM_SCALE, 0.0, 1.0) * HU_INPUT_SCALE
+        LIct = torch.clamp((LIct + HU_NORM_OFFSET) / HU_NORM_SCALE, 0.0, 1.0) * HU_INPUT_SCALE
         ListX = []
         ListA = []
         ListM = []
@@ -455,10 +467,14 @@ class FINDNet(nn.Module):
             ListX.append(X)
 
         XQ_adjust = self._px(self.proxNet_X_last_layer, XQ)
-        X = XQ_adjust[:, :1, :, :]
+        # v1.1：输出夹回 [0,255]（翻译服契约）。Xnet 是 F.relu(X+layer(X)) 残差，上界无界，
+        # 空气区被 B_down 掩膜后无监督，FFC 边界角点可冲高。clamp 后反归一化锁定
+        # [-1500, 3500] 物理量程（X/255*5000−1500）。
+        X = XQ_adjust[:, :1, :, :].clamp(0.0, HU_INPUT_SCALE)
         ListX.append(X)
         return X0, ListX, ListA
 
     def reconstruct(self, CT_ma, LIct, Mask):
-        """PRISM 接口：返回最终重建 x̂_z = ListX[-1]（唯一输出）。"""
-        return self.forward(CT_ma, LIct, Mask)[1][-1]
+        """PRISM 接口：返回最终重建 x̂_z = ListX[-1]（唯一输出），反归一化回 HU。"""
+        X = self.forward(CT_ma, LIct, Mask)[1][-1]
+        return X / HU_INPUT_SCALE * HU_NORM_SCALE - HU_NORM_OFFSET
