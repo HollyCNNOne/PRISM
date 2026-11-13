@@ -409,12 +409,16 @@ class FINDNet(nn.Module):
         return module(x)
 
     def forward(self, CT_ma, LIct, Mask):
-        # CT_ma / LIct / Mask: [B, 1, H, W]（HU；Mask 1=非金属/组织，0=金属）。
+        # CT_ma / LIct / Mask: [B, 1, H, W]（HU；Mask 1=金属，0=非金属，与全库数据契约一致）。
         # v1.1-scale：标准化翻译服（入）——HU → [0,1] → clip → ×255 → [0,255]，
         # 完全对齐官方 FIND-Net 输入动态范围（dataset.py: (x+1500)/5000 → clip[0,1] → *255）。
         # 空气 −1000 → 25.5（≥0 可表示），ReLU 不再钳死负数。
         CT_ma = torch.clamp((CT_ma + HU_NORM_OFFSET) / HU_NORM_SCALE, 0.0, 1.0) * HU_INPUT_SCALE
         LIct = torch.clamp((LIct + HU_NORM_OFFSET) / HU_NORM_SCALE, 0.0, 1.0) * HU_INPUT_SCALE
+        # 官方 FIND-Net 的 Mask 是 non_Mask（1=非金属）：`Mask*(input−X)` 从非金属区提取伪影残差。
+        # 全库数据契约是 1=金属（dataset/losses/trainer 统一），故在此入口翻一次，等价于
+        # 每个调用点传 `1−metal_mask`，避免十几处调用点漏翻导致掩膜反相。
+        Mask = 1.0 - Mask
         ListX = []
         ListA = []
         ListM = []

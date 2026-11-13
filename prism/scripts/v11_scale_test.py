@@ -4,7 +4,7 @@
 对照官方 FIND-Net 的三处契约做微创修复：
   1. 输入动态范围：HU → (x+1500)/5000 → clip[0,1] → ×255 → [0,255]（find_net.forward）
   2. 输出反归一化：X/255 → ×5000 −1500 → HU（find_net.reconstruct）
-  3. Mask 极性：传入 1=非金属/组织、0=金属（官方 non_Mask，find_net.forward 的 Mask 参数）
+  3. Mask 极性：find_net.forward 内部翻成非金属（官方 non_Mask），传入 1=金属（数据契约）即可
 （GroupNorm 仍保留、不删 ReLU——那两项留待 v1.1+。）
 
 判据：组织区 RMSE 是否跌破 baseline、corr 是否转正、raw X max 是否落在 [0,255] 域、
@@ -49,8 +49,7 @@ def main():
 
     ct_ma = torch.from_numpy(base)[:, None].float().to(dev)
     lict = torch.from_numpy(li)[:, None].float().to(dev)
-    mask_t = torch.from_numpy(msk)[:, None].float().to(dev)   # 1=金属（数据契约）
-    nonmetal = 1.0 - mask_t                                    # 1=非金属（官方 non_Mask）
+    mask_t = torch.from_numpy(msk)[:, None].float().to(dev)   # 1=金属（find_net 内部翻成非金属）
     tgt_t = torch.from_numpy(tgt)[:, None].float().to(dev)
 
     fn = FINDNet(FINDNetArgs()).to(dev).train()
@@ -71,14 +70,14 @@ def main():
 
     for step in range(10):
         opt.zero_grad()
-        pred = fn.reconstruct(ct_ma, lict, nonmetal)   # [B,1,H,W] HU（内部入×255/出÷255）
+        pred = fn.reconstruct(ct_ma, lict, mask_t)   # [B,1,H,W] HU（内部入×255/出÷255）
         x_hat_z = pred.unsqueeze(2)
         loss = downstream_reconstruction_loss(x_hat_z, X_clean, metal)
         loss.backward()
         opt.step()
         if (step + 1) in (1, 3, 5, 10):
             with torch.no_grad():
-                _, ListX, _ = fn.forward(ct_ma, lict, nonmetal)
+                _, ListX, _ = fn.forward(ct_ma, lict, mask_t)
                 rawX = ListX[-1]                                   # [0,255] 域
                 hu = (rawX / 255.0 * SCALE - OFF).cpu().numpy()[:, 0]
             rmse = [float(np.sqrt(np.mean((hu[i][tissues[i]] - tgt[i][tissues[i]]) ** 2)))
@@ -91,7 +90,7 @@ def main():
                   flush=True)
 
     with torch.no_grad():
-        pred = fn.reconstruct(ct_ma, lict, nonmetal)
+        pred = fn.reconstruct(ct_ma, lict, mask_t)
     p0 = pred[0, 0].cpu().numpy()
     tgt0 = tgt[0]
 

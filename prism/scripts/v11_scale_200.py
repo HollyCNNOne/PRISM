@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """v11_scale_200.py —— v1.1-scale-fix 200 步最终验收（同一单 Batch，控制变量）。
 
-保留 v1.1 三处契约（入 ×255 / 出 ÷255 / Mask 1=非金属），不删 ReLU（v1.1+ 暂缓）。
+保留 v1.1 三处契约（入 ×255 / 出 ÷255 / Mask 由 find_net 内部翻成非金属），不删 ReLU（v1.1+ 暂缓）。
 200 步 overfit（large/giant 两片，同 seed），在 [1,10,25,50,100,200] 打：
 loss、raw X max（[0,255] 域）、HU min/max（无爆炸）、组织区 RMSE/corr（vs baseline）。
 末步出 2×4 图（两片各 Target|Baseline|Prediction|Error，窗 [-150,350]，Error 热图）。
@@ -45,8 +45,7 @@ def main():
 
     ct_ma = torch.from_numpy(base)[:, None].float().to(dev)
     lict = torch.from_numpy(li)[:, None].float().to(dev)
-    mask_t = torch.from_numpy(msk)[:, None].float().to(dev)   # 1=金属（数据契约）
-    nonmetal = 1.0 - mask_t                                    # 1=非金属（官方 non_Mask）
+    mask_t = torch.from_numpy(msk)[:, None].float().to(dev)   # 1=金属（find_net 内部翻成非金属）
     tgt_t = torch.from_numpy(tgt)[:, None].float().to(dev)
 
     fn = FINDNet(FINDNetArgs()).to(dev).train()
@@ -68,14 +67,14 @@ def main():
 
     for step in range(STEPS):
         opt.zero_grad()
-        pred = fn.reconstruct(ct_ma, lict, nonmetal)   # HU（内部入×255/出÷255）
+        pred = fn.reconstruct(ct_ma, lict, mask_t)   # HU（内部入×255/出÷255）
         x_hat_z = pred.unsqueeze(2)
         loss = downstream_reconstruction_loss(x_hat_z, X_clean, metal)
         loss.backward()
         opt.step()
         if (step + 1) in (1, 10, 25, 50, 100, 200):
             with torch.no_grad():
-                _, ListX, _ = fn.forward(ct_ma, lict, nonmetal)
+                _, ListX, _ = fn.forward(ct_ma, lict, mask_t)
                 rawX = ListX[-1]
                 hu = (rawX / 255.0 * SCALE - OFF).cpu().numpy()[:, 0]
             rmse = [float(np.sqrt(np.mean((hu[i][tissues[i]] - tgt[i][tissues[i]]) ** 2)))
@@ -87,7 +86,7 @@ def main():
                   f"{corr[0]:7.3f} {corr[1]:7.3f}", flush=True)
 
     with torch.no_grad():
-        pred = fn.reconstruct(ct_ma, lict, nonmetal).cpu().numpy()[:, 0]
+        pred = fn.reconstruct(ct_ma, lict, mask_t).cpu().numpy()[:, 0]
 
     fig, axes = plt.subplots(2, 4, figsize=(21, 11))
     for r in range(2):

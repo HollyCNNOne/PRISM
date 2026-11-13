@@ -33,11 +33,15 @@ run_arm() {
   local name=$1; shift
   local ckpt="$OUTDIR/$name.pt"
   local log="$OUTDIR/$name.log"
+  local evjson="$OUTDIR/$name.eval.json"
   echo "=== [$name] train ($(date)) ===" | tee "$log"
   "$PY" -u PRISM/scripts/stage2_alternating.py "${COMMON[@]}" --out "$ckpt" "$@" 2>&1 | tee -a "$log"
   echo "=== [$name] eval ($(date)) ===" | tee -a "$log"
   "$PY" -u PRISM/scripts/eval_mar.py --checkpoint "$ckpt" --data-dir "$DATA_DIR" \
-      --patient "$PATIENT" --out-json "$OUTDIR/$name.eval.json" 2>&1 | tee -a "$log"
+      --patient "$PATIENT" --out-json "$evjson" 2>&1 | tee -a "$log"
+  echo "=== [$name] log_arm ($(date)) ===" | tee -a "$log"
+  "$PY" PRISM/scripts/log_arm.py --name "$name" --json "$evjson" \
+      --log "$ROOT/EXPERIMENT_LOG.md" 2>&1 | tee -a "$log"
 }
 
 # 基线：全开（cold-start obs / 速度 ON / 卡尔曼增益 / 双向 / μ 先验 / L_pc ON）
