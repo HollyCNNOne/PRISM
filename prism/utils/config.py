@@ -58,3 +58,5 @@ class SSMConfig:
     binarize_mask: bool = False      # B1 硬切掩膜：金属掩膜二值化 0/1（默认连续 vf）
     mask_bin_thr: float = 0.5        # B1 二值化阈值（vf > thr → 金属）
     loss_include_metal: bool = False  # B1 金属内算 Loss：金属区也监督（默认 (1−mask) 弃疗金属）
+    lambda_ssim: float = 0.1         # v1.3：L_down 内 SSIM 高频结构约束权重（0=关；建议 0.1~0.2）
+    backfill_r: int = 8              # v1.3：最终输出金属回填的形态学膨胀半径 px（0=关）

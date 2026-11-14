@@ -15,6 +15,7 @@ L_Q（过程噪声标定）；L_corr 已删（它是旧「x̂_final=μ+corr」�
 from __future__ import annotations
 
 import torch
+import torch.nn.functional as F
 
 from ..recursion.algorithm1 import forward_backward
 from ..kalman.state import KalmanState, total_precision
@@ -121,12 +122,28 @@ class SSMTrainer:
             return self._reconstruct(dirty[z], lict, mask)
         return obs
 
+    def _backfill(self, pred, baseline, metal_mask):
+        """v1.3 金属回填：Final = (1−Mask_dilate_r)·Pred + Mask_dilate_r·Baseline。
+
+        metal_mask: [B,1,H,W]（1=金属）。二值化后形态学膨胀 r px 盖住金属边缘晕影，
+        金属核内部原样保留 Baseline 的物理高光（HU>3000），网络绝不在金属区生成组织。
+        r≤0 或 metal_mask=None 时不回填（消融 B2/旧行为）。
+        """
+        r = self.config.backfill_r
+        if metal_mask is None or r <= 0:
+            return pred
+        binm = (metal_mask > 0.5).float()
+        k = 2 * r + 1
+        dil = F.max_pool2d(binm, kernel_size=k, stride=1, padding=r)
+        return (1.0 - dil) * pred + dil * baseline
+
     def _final_output(self, res, dirty, masks, li=None):
-        """FIND-Net 唯一输出 x̂_z（L_down 监督对象），[B, 1, Z, H, W]。
+        """FIND-Net 唯一输出 x̂_z（L_down 监督对象），[B, 1, Z, H, W]，含 v1.3 金属回填。
 
         双向：先融合 SSM 后验 μ_post（精度加权），再 FIND-Net(脏图, 融合 μ|LI, Mask) ——
         「融合先验 → FIND-Net → 最终输出」，后向趟的贡献经融合 μ 进最终输出。
         单向/per_slice：直接用循环内 FIND-Net 输出 res.fwd_x_hats（已是 FIND-Net(μ_pred|LI)）。
+        两种模式最终输出都做金属回填，保证评估与训练逻辑对齐。
         """
         if self.config.recursion == "bidirectional":
             mu_fused = [s.mu for s in res.fused]               # [Z] 个 [B,1,H,W]
@@ -134,9 +151,15 @@ class SSMTrainer:
             for z in range(len(mu_fused)):
                 mask = masks[z] if masks is not None else None
                 lict = self._lict(mu_fused[z], li[z] if li is not None else None)
-                xs.append(self._reconstruct(dirty[z], lict, mask))
+                pred = self._reconstruct(dirty[z], lict, mask)
+                xs.append(self._backfill(pred, dirty[z], mask))
             return self._stack(xs)
-        return self._stack(res.fwd_x_hats)                     # [B,1,Z,H,W]
+        # 非双向：循环内 FIND-Net 输出，同样回填
+        xs = []
+        for z in range(len(res.fwd_x_hats)):
+            mask = masks[z] if masks is not None else None
+            xs.append(self._backfill(res.fwd_x_hats[z], dirty[z], mask))
+        return self._stack(xs)                                 # [B,1,Z,H,W]
 
     def train_step(self, thetas, X_clean, metal_mask, x_hat, clip_grad: float = 0.0, li=None):
         """一个体的训练步（递归循环：FIND-Net 在循环内，观测 = FIND-Net 输出）。
@@ -191,7 +214,8 @@ class SSMTrainer:
 
         # 3. L_down：FIND-Net 唯一输出 x̂_z ≈ X_clean（去伪影，主）
         x_hat_z = self._final_output(res, dirty, masks, li_list)   # [B,1,Z,H,W]
-        down_loss = losses.downstream_reconstruction_loss(x_hat_z, X_clean, loss_metal_mask)
+        down_loss = losses.downstream_reconstruction_loss(x_hat_z, X_clean, loss_metal_mask,
+                                                          lambda_ssim=self.config.lambda_ssim)
 
         # 4. L_pc（待定，保留现状）：μ 的金属 HU 物理一致性
         mu_fused = self._stack([s.mu for s in res.fused])          # [B,1,Z,H,W]

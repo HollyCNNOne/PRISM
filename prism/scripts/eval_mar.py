@@ -130,6 +130,7 @@ def main():
     binarize_mask = cfg.get("binarize_mask", False)
     mask_bin_thr = cfg.get("mask_bin_thr", 0.5)
     recursion = cfg.get("recursion", args.recursion)
+    backfill_r = cfg.get("backfill_r", 8)
 
     m_net = MNetwork(nb=nb, channels=channels, use_velocity=use_velocity,
                      gate_reads_dj=gate_reads_dj,
@@ -145,7 +146,8 @@ def main():
     config = SSMConfig(nb=nb, channels=channels, trust_mode=args.trust_mode,
                        recursion=recursion, d_ref=d_ref,
                        gain_mode=gain_mode, findnet_lict_source=findnet_lict_source,
-                       binarize_mask=binarize_mask, mask_bin_thr=mask_bin_thr)
+                       binarize_mask=binarize_mask, mask_bin_thr=mask_bin_thr,
+                       backfill_r=backfill_r)
     trainer = SSMTrainer(m_net, config, device=args.device, find_net=find_net)
 
     print(f"[eval] checkpoint={args.checkpoint}\n"

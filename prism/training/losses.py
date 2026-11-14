@@ -72,8 +72,39 @@ def q_supervision_loss(log_q, q_target, mask=None):
     return se.mean()
 
 
-def downstream_reconstruction_loss(x_hat_z, X_clean, metal_mask=None, air_hu_thr: float = -500.0):
-    """L_down = mean_{组织} (x̂_z − X_clean)² —— FIND-Net 唯一输出的去伪影损失（Eq.6）。
+def _ssim_loss(pred, target, mask=None):
+    """结构相似度约束（高频结构项）：1 − mean(SSIM·mask)，越小越好。
+
+    pred/target: [N, C, H, W]（已 ÷HU_SCALE 归一化）；mask: [N, C, H, W]（1=监督）。
+    SSIM 用 11×11 高斯窗（σ=1.5），C1/C2 取标准 (0.01², 0.03²)（归一化后 L≈1）。
+    惩罚「向均值坍塌」：纯 MSE 在盲区只逼均值，SSIM 项逼局部结构/纹理对齐。
+    """
+    C1 = 0.01 ** 2
+    C2 = 0.03 ** 2
+    ws = 11
+    c = torch.arange(ws, dtype=pred.dtype, device=pred.device) - (ws - 1) / 2
+    g = torch.exp(-(c ** 2) / (2 * 1.5 ** 2))
+    g = g / g.sum()
+    win = (g[:, None] * g[None, :]).view(1, 1, ws, ws).to(pred.dtype)
+    pad = ws // 2
+    mu1 = F.conv2d(pred, win, padding=pad)
+    mu2 = F.conv2d(target, win, padding=pad)
+    mu1_sq = mu1 ** 2
+    mu2_sq = mu2 ** 2
+    s1 = F.conv2d(pred * pred, win, padding=pad) - mu1_sq
+    s2 = F.conv2d(target * target, win, padding=pad) - mu2_sq
+    s12 = F.conv2d(pred * target, win, padding=pad) - mu1 * mu2
+    ssim = ((2 * mu1 * mu2 + C1) * (2 * s12 + C2)) / \
+           ((mu1_sq + mu2_sq + C1) * (s1 + s2 + C2) + 1e-8)
+    loss = (1.0 - ssim) * 0.5
+    if mask is not None:
+        return (loss * mask).sum() / (mask.sum() + _EPS)
+    return loss.mean()
+
+
+def downstream_reconstruction_loss(x_hat_z, X_clean, metal_mask=None, air_hu_thr: float = -500.0,
+                                   lambda_ssim: float = 0.1):
+    """L_down = mean_{组织} (x̂_z − X_clean)² + λ_ssim · (1 − SSIM) —— FIND-Net 唯一输出的去伪影损失。
 
     递归循环定案：x̂_z = FIND-Net(CT_ma=脏图, LIct=μ_pred, Mask) 是唯一最终输出，
     L_down 直接监督它逼近本片干净组织（非金属区 I，FIND-Net Eq.6）。残差按 HU_SCALE=100
@@ -82,6 +113,7 @@ def downstream_reconstruction_loss(x_hat_z, X_clean, metal_mask=None, air_hu_thr
 
     v1.1：额外屏蔽空气（X_clean < air_hu_thr，背景 −1000 HU），只监督组织，
     避免空气主导梯度把网络拖回 Mode Collapse，唤醒高频组织学习。
+    v1.3：加入 SSIM 高频结构项（λ_ssim>0），惩罚盲区「向均值坍塌」与过度平滑。
 
     x_hat_z: [B,1,Z,H,W]（FIND-Net 输出，HU）；X_clean: [B,Z,1,H,W]；metal_mask: [B,Z,1,H,W]（1=金属）。
     """
@@ -93,8 +125,14 @@ def downstream_reconstruction_loss(x_hat_z, X_clean, metal_mask=None, air_hu_thr
     else:
         mask = torch.ones_like(x_hat_z)
     mask = mask * (X_clean_p > air_hu_thr).float()      # v1.1：屏蔽空气，只留组织
-    se = se * mask
-    return se.sum() / (mask.sum() + _EPS)
+    mse = (se * mask).sum() / (mask.sum() + _EPS)
+    if lambda_ssim > 0:
+        B, C, Z, H, W = x_hat_z.shape
+        p = (x_hat_z / HU_SCALE).reshape(B * Z, C, H, W)
+        t = (X_clean_p / HU_SCALE).reshape(B * Z, C, H, W)
+        m = mask.reshape(B * Z, C, H, W)
+        mse = mse + lambda_ssim * _ssim_loss(p, t, m)
+    return mse
 
 
 def mu_fidelity_loss(mu, X_clean, metal_mask=None):

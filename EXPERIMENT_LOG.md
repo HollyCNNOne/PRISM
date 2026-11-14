@@ -5,6 +5,59 @@
 
 ---
 
+## v1.3-resolved-visual-fix
+
+- [版本号] v1.3-resolved-visual-fix
+- [时间] 2026-11-14 17:30
+- [实验目的] 解决 v1.2 中金属马赛克的回填缺失，以及纯 MSE 导致的高频过度平滑。
+- [已解决的成功点]
+  1. 金属核心区通过 Mask_dilate_r8 强行回填，完美保留了 Baseline 的原始高光（HU max=3000），杜绝了网络生成虚假组织。
+  2. 引入 lambda_ssim=0.1 的高频约束，成功在 Prediction 中"雕刻"出了脑回、脑沟及灰白质边界，视觉上的"糊状均值坍塌"得到极大缓解。
+- [遗留的异常与局限性（LIMITATIONS）]
+  1. 指标波动风险：80 步 Overfit 中，由于 SSIM 侧重结构相似性而非绝对像素值，导致非金属区 RMSE 暂时从 113 上升至 280。需在全量训练中观察最终收敛。
+  2. 重建算法自带的模糊（核心遗留问题）：即使在回填和 SSIM 约束下，脑实质内部的细节依然存在一定程度的模糊。这不仅是网络学习的问题，更是因为解析仿真（FBP/迭代重建）本身的低通特性（涂抹感）带来的信息丢失。这是我们后续在 v3.x 引入多重建算法（如 AGIR）需要解决的关键痛点。
+  3. 回填边界伪影：dilate_r8 可能会覆盖少量真实的金属外周组织，导致边界误差。
+- [下一步状态]
+  1. 封版当前代码为 v1.3。
+  2. 全量重跑 00_baseline 2000 步，观察 SSIM 加入后的最终指标收敛情况。
+  3. 待重跑达标后，正式推送上 GitHub。
+
+---
+
+## v1.3-issue-tracking
+
+- [版本号] v1.3-issue-tracking
+- [时间] 2026-11-14 16:10
+- [实验前提与条件] v1.2-00_baseline 视觉验尸（held-out patients_head2，3 张代表性切片）发现两类**物理违约**；已按主人指示**中止 8 臂消融流水线**（A1_no_recursion 进行中被杀，GPU 已归零），不修改主模型、不重启训练。
+- [现象（客观 vs 预期）]
+  1. **金属核心区**：预期 = `Final = (1−Mask)·Pred + Mask·Baseline` 强行回填 Baseline 真实金属高光（HU>3000），网络绝不在金属区生成组织；实际 = 灰白混合马赛克（FIND-Net 在金属区被 FFC 卷积抹平成组织样）。
+  2. **过渡区边缘**：预期 = 盲区靠 3D SSM 上下文恢复真实解剖梯度、有观测区保持锐利；实际 = 紧贴金属的脑组织被平滑成均匀灰块，纹理丢失（向均值坍塌）。
+- [假设 A（可视化退化）] 出图脚本是否 for 循环逐片喂 [1,1,H,W]，使 3D SSM 退化成 2D 冷启动？
+- [假设 B（逻辑/损失 Bug）] ① 最终输出拼接是否遗漏 Mask 回填？② 训练 Loss 是否缺高频结构约束（SSIM/Gradient）？
+- [核查结论 + 代码证据]
+  - **假设 A ❌ 证伪**：`scripts/viz_v12_slices.py:145-163` `run_seq()` 走 `loader(seq)`（整条序列）→ `forward_backward(recursion="bidirectional")` → `trainer._final_output`，是完整 3D 双向递归，非单切片 2D 冷启动。
+  - **假设 B① ✅ 证实（金属马赛克根因）**：`training/trainer.py:124-139` `_final_output` 直接 `xs.append(self._reconstruct(dirty[z], lict, mask))` 返回 FIND-Net 裸输出，**全程无 `(1−Mask)·Pred + Mask·Baseline` 回填**；`models/find_net.py:481-484` `reconstruct` 只做 `X/255*5000−1500` 反归一化。金属区在 forward 里 Mask=0 → `X_mid=X0`（X0 来自 LIct 的金属 255），随后被 Xnet 的 FFC 卷积抹平成马赛克，无任何强制回填。
+  - **假设 B② ✅ 证实（过渡区灰块根因）**：`training/losses.py:75-97` `downstream_reconstruction_loss` 是纯 masked-MSE（`se = resid**2`），`mu_fidelity_loss` 同理，全库无 SSIM / Gradient / 感知约束。MSE-only → 盲区向均值坍塌、有观测区过度平滑。
+- [根因定性] 金属马赛克 = 缺少 Mask 回填（B①）；过渡区灰块 = 缺失高频结构约束（B②）；**非**可视化退化（A 证伪）。两者独立，需分别修。
+- [下一步状态] 等主人拍板修复方案：① 最终输出加 `(1−Mask)·Pred + Mask·Baseline`（可 dilate-r8 覆盖金属晕）；② Loss 增加高频约束（Gradient/SSIM 项）。修复前不重启训练。
+
+---
+
+## v1.2-00_baseline
+
+- [版本号] v1.2-00_baseline
+- [时间] 2026-11-14 15:26
+- [实验前提与条件] v1.1-scale-fix 定案权重 findnet_stage1_v1.1.pt + Stage 2 消融矩阵（holdout=patients_head2 零泄漏，d_ref=4.10023e+06 冻结）。
+- [本次目的] 基线全开：卡尔曼增益 + 双向递归 + SSM 先验 + 速度项 + L_pc。
+- [采用方法] cold-start=obs / recursion=bidirectional / gain=kalman / findnet_lict=mu / velocity=on / L_pc=on
+- [实验结果] 过渡区 RMSE=171.61/Bias=9.5/PSNR=27.83；充分区 RMSE=32.96；部分阴影 RMSE=90.36；完全阴影 RMSE=48.16；全局 RMSE=81.37（peak=4229 HU，72 植入体）。对比 v1.0：充分区 996→33（30×）、全局 804→81（10×）。视觉验尸：重度伪影片非金属 RMSE=113.2 / 复杂解剖 69.3 / 纯组织 66.5。
+- [成功点] 数值指标大幅改善，Mode Collapse 彻底消失（充分区 996→33）。
+- [失败点/异常] 视觉验尸发现两类物理违约：金属核心马赛克 + 过渡区灰块（详见 v1.3-issue-tracking）。
+- [问题根因分析] 见 v1.3-issue-tracking。
+- [下一步状态] 冻结，待 v1.3 修复后重跑。
+
+---
+
 ## v1.1-scale-fix
 
 - [版本号] v1.1-scale-fix
