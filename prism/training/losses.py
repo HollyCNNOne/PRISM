@@ -102,37 +102,37 @@ def _ssim_loss(pred, target, mask=None):
     return loss.mean()
 
 
-def downstream_reconstruction_loss(x_hat_z, X_clean, metal_mask=None, air_hu_thr: float = -500.0,
-                                   lambda_ssim: float = 0.1):
-    """L_down = mean_{组织} (x̂_z − X_clean)² + λ_ssim · (1 − SSIM) —— FIND-Net 唯一输出的去伪影损失。
-
-    递归循环定案：x̂_z = FIND-Net(CT_ma=脏图, LIct=μ_pred, Mask) 是唯一最终输出，
-    L_down 直接监督它逼近本片干净组织（非金属区 I，FIND-Net Eq.6）。残差按 HU_SCALE=100
-    归一化使 L_down O(1)。梯度经 x̂_z 回流：x̂_z 读 μ_pred（FIND-Net 的 LIct 输入）→
-    M_μ；x̂_z 的观测作用经卡尔曼混合 μ_post = K·μ_pred + (1−K)·x̂_z → 递归 carry。
-
-    v1.1：额外屏蔽空气（X_clean < air_hu_thr，背景 −1000 HU），只监督组织，
-    避免空气主导梯度把网络拖回 Mode Collapse，唤醒高频组织学习。
-    v1.3：加入 SSIM 高频结构项（λ_ssim>0），惩罚盲区「向均值坍塌」与过度平滑。
-
-    x_hat_z: [B,1,Z,H,W]（FIND-Net 输出，HU）；X_clean: [B,Z,1,H,W]；metal_mask: [B,Z,1,H,W]（1=金属）。
-    """
+def downstream_reconstruction_parts(x_hat_z, X_clean, metal_mask=None, air_hu_thr: float = -500.0):
+    """返回 L_down 的两个 masked 分量 (mse, ssim)，供训练器打印诊断曲线。"""
     X_clean_p = X_clean.permute(0, 2, 1, 3, 4)          # [B,1,Z,H,W]
     resid = (x_hat_z - X_clean_p) / HU_SCALE
-    se = resid ** 2
     if metal_mask is not None:
         mask = (1.0 - metal_mask).permute(0, 2, 1, 3, 4)     # [B,1,Z,H,W] 非金属
     else:
         mask = torch.ones_like(x_hat_z)
-    mask = mask * (X_clean_p > air_hu_thr).float()      # v1.1：屏蔽空气，只留组织
-    mse = (se * mask).sum() / (mask.sum() + _EPS)
-    if lambda_ssim > 0:
-        B, C, Z, H, W = x_hat_z.shape
-        p = (x_hat_z / HU_SCALE).reshape(B * Z, C, H, W)
-        t = (X_clean_p / HU_SCALE).reshape(B * Z, C, H, W)
-        m = mask.reshape(B * Z, C, H, W)
-        mse = mse + lambda_ssim * _ssim_loss(p, t, m)
-    return mse
+    mask = mask * (X_clean_p > air_hu_thr).float()      # 屏蔽空气，只留组织
+    mse = ((resid ** 2) * mask).sum() / (mask.sum() + _EPS)
+    B, C, Z, H, W = x_hat_z.shape
+    p = (x_hat_z / HU_SCALE).reshape(B * Z, C, H, W)
+    t = (X_clean_p / HU_SCALE).reshape(B * Z, C, H, W)
+    m = mask.reshape(B * Z, C, H, W)
+    ssim = _ssim_loss(p, t, m)
+    return mse, ssim
+
+
+def downstream_reconstruction_loss(x_hat_z, X_clean, metal_mask=None, air_hu_thr: float = -500.0,
+                                   lambda_ssim: float = 0.1):
+    """L_down = masked_MSE + λ_ssim·(1−SSIM) —— 去伪影 + 高频结构约束（v1.3 baseline 定案）。
+
+    递归循环定案：x̂_z = FIND-Net(CT_ma=脏图, LIct=μ_pred, Mask) 是唯一最终输出，非金属区 I 监督。
+    残差按 HU_SCALE=100 归一化。梯度经 x̂_z 回流：x̂_z 读 μ_pred → M_μ；观测经卡尔曼混合进 carry。
+    v1.1：屏蔽空气；v1.3：λ_ssim=0.1 高频结构约束（定案 baseline）。v1.4/v1.5 的 Grad 项已证
+    明在盲区空雕产生假锐化，废弃。
+
+    x_hat_z: [B,1,Z,H,W]（FIND-Net 输出，HU）；X_clean: [B,Z,1,H,W]；metal_mask: [B,Z,1,H,W]（1=金属）。
+    """
+    mse, ssim = downstream_reconstruction_parts(x_hat_z, X_clean, metal_mask, air_hu_thr)
+    return mse + lambda_ssim * ssim
 
 
 def mu_fidelity_loss(mu, X_clean, metal_mask=None):

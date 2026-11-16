@@ -147,7 +147,7 @@ def main():
     ap.add_argument("--lambda-down", type=float, default=1.0)
     ap.add_argument("--lambda-mu", type=float, default=1.0)
     ap.add_argument("--lambda-ssim", type=float, default=0.1,
-                    help="v1.3：L_down 内 SSIM 高频结构约束权重（0=关，建议 0.1~0.2）")
+                    help="v1.3：L_down 内 SSIM 高频结构约束权重（0=关）")
     ap.add_argument("--backfill-r", type=int, default=8,
                     help="v1.3：最终输出金属回填膨胀半径 px（0=关）")
     ap.add_argument("--recursion", default="bidirectional",
@@ -242,7 +242,8 @@ def main():
     config = SSMConfig(nb=args.nb, channels=args.channels,
                        lambda_q=args.lambda_q, lambda_pc=args.lambda_pc,
                        lambda_down=args.lambda_down, lambda_mu=args.lambda_mu,
-                       lambda_ssim=args.lambda_ssim, backfill_r=args.backfill_r,
+                       lambda_ssim=args.lambda_ssim,
+                       backfill_r=args.backfill_r,
                        recursion=args.recursion, d_ref=d_ref,
                        cold_start_init=args.cold_start_init,
                        gain_mode=args.gain_mode,
@@ -285,7 +286,8 @@ def main():
                 "gain_mode": args.gain_mode, "findnet_lict_source": args.findnet_lict,
                 "binarize_mask": args.binarize_mask, "mask_bin_thr": args.mask_bin_thr,
                 "loss_include_metal": args.loss_include_metal,
-                "lambda_ssim": args.lambda_ssim, "backfill_r": args.backfill_r}
+                "lambda_ssim": args.lambda_ssim,
+                "backfill_r": args.backfill_r}
 
     a_tot = {"total": 0.0, "q": 0.0, "pc": 0.0, "down": 0.0, "mu": 0.0}
     b_tot = 0.0

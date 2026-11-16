@@ -64,7 +64,7 @@ def build_sample_ids(meta_dir, max_slices=0, holdout_patient=None, val_patient=N
 
 
 def masked_mse(x_hat, target, mask):
-    """FIND-Net Eq.6：非金属区（1−mask）加权 MSE，残差按 HU_SCALE 归一化（同 losses.py）。"""
+    """FIND-Net Eq.6：非金属区（1−mask）加权 MSE，残差按 HU_SCALE 归一化。"""
     resid = (x_hat - target) / HU_SCALE
     se = resid ** 2
     m = (1.0 - mask)

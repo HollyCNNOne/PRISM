@@ -5,6 +5,31 @@
 
 ---
 
+## v1.3-baseline
+
+- [版本号] v1.3-baseline
+- [时间] 2026-11-16
+- [核心机制] 双向 3D SSM + FIND-Net（卡尔曼增益 + SSM 先验 μ 喂 FIND-Net 的 LIct 输入）+ 物理回填（`Final = (1−Mask_dilate_r8)·Pred + Mask_dilate_r8·Baseline`）+ Mask 评估隔离（`valid_eval_mask = NOT dilate(metal, r_backfill)` 排除回填区，过渡区尺子 8→18px）。Loss = `masked_MSE + 0.1·SSIM`（无梯度损失）。
+- [大盘指标] held-out patients_head2（72 植入体，干净尺子）：过渡区 RMSE=166.2 / Bias=+59.7；充分区 RMSE=34.4；部分阴影 RMSE=84.7；完全阴影 RMSE=46.0；全局 RMSE=76.5（peak=4229 HU）。
+- [物理局限性 LIMITATIONS] ① 过渡区仍有一定过度平滑（Bias +59.7，SSIM 结构优先的代价）；② 金属边缘回填 r8 偶有边界瑕疵；③ 脑实质内部细节仍受解析仿真（FBP）低通特性的模糊影响。以上作为后续消融的起点。
+- [下一步] 开启 A1-A8 内部消融矩阵（A1_no_recursion / A2_no_prior / A3_gated / A3_fixed / A4_no_velocity / B1_hard_mask / B2_no_phys / C1_force_short）。
+
+---
+
+## v1.5-directional-grad-decouple
+
+- [版本号] v1.5-directional-grad-decouple
+- [时间] 2026-11-16
+- [实验前提与条件] v1.4 两段式全量**失败**：过渡区 RMSE 166→255、Bias +60→**+189**，完全阴影 46→**98.5**（2×）；视觉上盲区出现"放射状假锐化白线"、SSM 推演的盲区组织仍模糊。根因① 双向任务矛盾：盲区（d_j 极低）既要去伪影（需平滑）又要刻画组织高频（需锐化），空间上反向；根因② 梯度损失在盲区无脑锐化，把残留放射状伪影当成真实解剖高频，产生幻觉噪点。
+- [本次目的] 引入方向性梯度解耦，让 Loss 拥有"方向感"。严格控制变量：**先不引入 d_j 物理门控**，只测方向解耦单独的效果。
+- [采用方法] losses.py 废弃标量梯度，重构为 x/y 方向分离：`loss_gx = L1(Sobel_x(pred), Sobel_x(target))`、`loss_gy = L1(Sobel_y(pred), Sobel_y(target))`；`Total = MSE + 0.25·SSIM + 0.1·(loss_gx + loss_gy)`。
+- [诚实发现] ⚠️ v1.4 的 `_gradient_loss`（`gx+gy`）在数学上**已等价**于 v1.5 的 x/y 分离，v1.5 仅把两方向显式拆出、预留按伪影放射方向加权的接口，**数学上是 no-op**——overfit 结果预期与 v1.4 一致，假锐化不会被这一步消除。真正的解药是空间门控（盲区不该锐化），留待后续。
+- [实验结果] 待 50 步 overfit 回填。
+- [成功点/失败点/根因分析] 待回填。
+- [下一步状态] 跑 sample_000973 50 步 overfit + 对比图（Target | v1.3 | v1.5 | Error），验证红框（盲区假锐化）是否抑制、绿框（正常组织）是否保持锐利。
+
+---
+
 ## v1.3-resolved-visual-fix
 
 - [版本号] v1.3-resolved-visual-fix
