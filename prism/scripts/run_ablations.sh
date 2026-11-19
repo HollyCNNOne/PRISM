@@ -44,21 +44,23 @@ run_arm() {
       --log "$ROOT/EXPERIMENT_LOG.md" 2>&1 | tee -a "$log"
 }
 
-# 基线：全开（cold-start obs / 速度 ON / 卡尔曼增益 / 双向 / μ 先验 / L_pc ON）
-run_arm 00_baseline
+# 基线 00_baseline 已冻结（v1.3-baseline，ablations_v13/00_baseline.pt），跳过不重跑
+# run_arm 00_baseline
 
-# A 组：递归与机制
+# A 组：递归与机制（v1.3-baseline 收缩：只跑 A1/A2 两个承重墙臂验证趋势）
 run_arm A1_no_recursion  --recursion per_slice                       # 去递归（退化 2D）
 run_arm A2_no_prior      --findnet-lict li                            # 去先验（μ 不喂 FIND-Net）
-run_arm A3_gated_gain    --gain-mode gated                            # 增益→经验门控
-run_arm A3_fixed_gain    --gain-mode fixed                            # 增益→常数
-run_arm A4_no_velocity   --no-velocity                                # 去速度项
 
-# B 组：物理约束
-run_arm B1_hard_mask     --binarize-mask --loss-include-metal         # 硬切掩膜 + 金属内算 Loss
-run_arm B2_no_phys       --lambda-pc 0                                # 去物理惩罚 L_pc
-
-# C 组：极短序列
-run_arm C1_force_short   --force-recursion-short                      # Z<3 强双向递归（预期发散）
+# ---- 以下 A3-C1 暂时归档，不跑（等 A1/A2 趋势验证后再铺开）----
+# run_arm A3_gated_gain    --gain-mode gated                            # 增益→经验门控
+# run_arm A3_fixed_gain    --gain-mode fixed                            # 增益→常数
+# run_arm A4_no_velocity   --no-velocity                                # 去速度项
+#
+# # B 组：物理约束
+# run_arm B1_hard_mask     --binarize-mask --loss-include-metal         # 硬切掩膜 + 金属内算 Loss
+# run_arm B2_no_phys       --lambda-pc 0                                # 去物理惩罚 L_pc
+#
+# # C 组：极短序列
+# run_arm C1_force_short   --force-recursion-short                      # Z<3 强双向递归（预期发散）
 
 echo "=== 全部完成。过渡区指标汇总见 $OUTDIR/*.eval.json ==="

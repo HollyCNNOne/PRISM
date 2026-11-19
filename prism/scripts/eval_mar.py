@@ -48,21 +48,23 @@ def _sample_idx(sample_id: str) -> int:
     return int(sample_id.rsplit("_", 1)[1])
 
 
-def transition_zone_mask(metal_mask, r, dilate_px=10, r_low=1.0 / 9.0):
-    """过渡区掩膜 = 金属外扩环带 ∩ 光子饥饿区（靶向评价体系第三部分）。
+def transition_zone_mask(metal_mask, r, dilate_px=10, r_backfill=8, r_low=1.0 / 9.0):
+    """过渡区掩膜 = [dilate(metal, r_backfill+ring) − dilate(metal, r_backfill)] ∩ 光子饥饿区。
 
-    物理定义：紧贴金属外缘、光子饥饿（r=d_j/d_ref < r_low）最严重的一圈——2D 信息近乎 0、
-    条纹侵蚀最重、医生最关注（瘤颈/载瘤动脉）。
+    v1.4 修正尺子（可解释评估）：评估环带必须避开回填区——回填已把 dilate(metal, r_backfill)
+    填成金属晕影，若环带从金属核外沿起算，回填污染会假性抬高过渡区误差。故评估环带改从
+    回填外沿（r_backfill）起算、宽 dilate_px，只测网络在回填环之外恢复的脑组织。
 
-    实现（纯 torch，无 scipy/torchvision）：metal_mask 二值化 → 3D max-pool 外扩 dilate_px
-    体素 → 减原金属核得环带 → 与低 d_j（r<r_low）取交。
     metal_mask/r: [B,1,Z,H,W]；返回同形 [B,1,Z,H,W]（0/1）。
     """
     binm = (metal_mask > 0.5).float()
-    k = 2 * dilate_px + 1
-    dilated = F.max_pool3d(binm, kernel_size=(1, k, k), stride=1,
-                           padding=(0, dilate_px, dilate_px))
-    ring = (dilated - binm).clamp(min=0.0)
+    inner_k = 2 * r_backfill + 1
+    inner = F.max_pool3d(binm, kernel_size=(1, inner_k, inner_k), stride=1,
+                         padding=(0, r_backfill, r_backfill))
+    outer_k = 2 * (r_backfill + dilate_px) + 1
+    outer = F.max_pool3d(binm, kernel_size=(1, outer_k, outer_k), stride=1,
+                         padding=(0, r_backfill + dilate_px, r_backfill + dilate_px))
+    ring = (outer - inner).clamp(min=0.0)
     low = (r < r_low).float()
     return ring * low
 
@@ -209,6 +211,12 @@ def main():
             x_hat_final = trainer._final_output(res, dirty, masks, li_list)  # [1,1,Z,H,W]
 
             I = 1.0 - metal_mask                                       # 非金属=1
+            # v1.4 有效评估域：排除金属核 + 回填 r_backfill 外扩圈，评估只测网络真实恢复的组织
+            _binm = (metal_mask > 0.5).float()
+            _bk = 2 * backfill_r + 1
+            _backfill = F.max_pool3d(_binm, kernel_size=(1, _bk, _bk), stride=1,
+                                     padding=(0, backfill_r, backfill_r))
+            valid_eval = (_backfill < 0.5).float()                      # [1,1,Z,H,W] 1=有效
             d_j = trainer._stack([t["d_j"] for t in thetas])           # [1,1,Z,H,W]
             r = d_j / d_ref
             err = (x_hat_final - X_clean) ** 2                         # [1,1,Z,H,W]
@@ -216,7 +224,7 @@ def main():
             peak = max(peak, float(X_clean[I > 0.5].max().item()))
 
             for name in SSE:
-                sel = I > 0.5
+                sel = (I > 0.5) & (valid_eval > 0.5)     # 非金属 ∩ 有效评估域（排除回填区）
                 sel = sel & (r > 9.0) if name == "充分" else sel
                 sel = sel & (r < 1.0 / 9.0) if name == "完全阴影" else sel
                 if name == "部分阴影":
@@ -226,11 +234,11 @@ def main():
 
             # 过渡区（金属外扩环带 ∩ 光子饥饿）与全局非金属。
             tz = transition_zone_mask(metal_mask, r, args.transition_dilate_px,
-                                      args.transition_r_low)
+                                      backfill_r, args.transition_r_low)
             tz_sse += float((err * tz).sum().item())
             tz_sumerr += float((signed_err * tz).sum().item())
             tz_cnt += int(tz.sum().item())
-            g = I > 0.5
+            g = (I > 0.5) & (valid_eval > 0.5)      # 非金属 ∩ 有效评估域
             glob_sse += float(err[g].sum().item())
             glob_cnt += int(g.sum().item())
 

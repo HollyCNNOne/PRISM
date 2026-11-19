@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""log_arm.py —— 每臂跑完后按《实验与版本记录规范》10 项模板写入 v1.2-xxx 记录。
+"""log_arm.py —— 每臂跑完后按《实验与版本记录规范》10 项模板写入 v1.3-xxx 记录。
 
 倒序置顶：新记录插到 EXPERIMENT_LOG.md 标题头之后（首个 "---" 分隔线之后）。
 客观指标（过渡区/三分区/全局 RMSE/PSNR/peak/植入体数）自动从 eval json 读入；
@@ -89,11 +89,11 @@ def main():
     ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
     record = (
-        f"## v1.2-{args.name}\n\n"
-        f"- [版本号] v1.2-{args.name}\n"
+        f"## v1.3-{args.name}\n\n"
+        f"- [版本号] v1.3-{args.name}\n"
         f"- [时间] {ts}\n"
-        f"- [实验前提与条件] v1.1-scale-fix 定案权重 findnet_stage1_v1.1.pt + Stage 2 消融矩阵"
-        f"（holdout=patients_head2 零泄漏，d_ref=4.10023e+06 冻结）。\n"
+        f"- [实验前提与条件] v1.3-baseline 定案（MSE+0.1·SSIM + 回填 r8）+ findnet_stage1_v1.1.pt + "
+        f"Stage 2 消融矩阵（holdout=patients_head2 零泄漏，d_ref=4.10023e+06 冻结）。\n"
         f"- [本次目的] {meta['purpose']}\n"
         f"- [采用方法] {meta['method']}\n"
         f"- [实验结果] 过渡区 RMSE={tz[0]}/Bias={tz[1]}/PSNR={tz[2]}；充分区 RMSE={full[0]}；"
@@ -123,7 +123,7 @@ def main():
 
     with open(args.log, "w", encoding="utf-8") as f:
         f.write(content)
-    print(f"[log_arm] v1.2-{args.name} 已写入 {args.log}", flush=True)
+    print(f"[log_arm] v1.3-{args.name} 已写入 {args.log}", flush=True)
 
 
 if __name__ == "__main__":

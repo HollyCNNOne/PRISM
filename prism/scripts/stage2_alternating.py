@@ -41,6 +41,7 @@ from prism.data.dataset import ThetaDataset, collate_theta, make_theta_sequence_
 from prism.data.dataset2d import Slice2DDataset, collate2d
 from prism.models.m_network import MNetwork
 from prism.models.find_net import FINDNet, FINDNetArgs
+from prism.models.find_net_gf import FINDNet as FINDNetGF, FINDNetArgs as FINDNetArgsGF
 from prism.models.r_theta import HU_SCALE
 from prism.training.trainer import SSMTrainer
 from prism.utils.config import SSMConfig
@@ -176,6 +177,8 @@ def main():
                     help="checkpoint 输出路径（None=默认 data_dir/ssm_stage2.pt；消融矩阵每臂一个）")
     ap.add_argument("--resume-findnet", default=None,
                     help="Stage 1 产出的 find_net checkpoint（暖启动）")
+    ap.add_argument("--gf", action="store_true",
+                    help="v2.2：FIND-Net 用 GF 版（FourierUnit 加可学习 Gaussian 带通）")
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
@@ -232,7 +235,7 @@ def main():
 
     m_net = MNetwork(nb=args.nb, channels=args.channels,
                      use_velocity=not args.no_velocity).to(args.device)
-    find_net = FINDNet(FINDNetArgs()).to(args.device)
+    find_net = (FINDNetGF(FINDNetArgsGF()) if args.gf else FINDNet(FINDNetArgs())).to(args.device)
     if args.resume_findnet:
         ck = torch.load(args.resume_findnet, map_location=args.device, weights_only=False)
         find_net.load_state_dict(ck["find_net"])

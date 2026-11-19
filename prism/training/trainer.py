@@ -215,8 +215,8 @@ class SSMTrainer:
         # 3. L_down：FIND-Net 唯一输出 x̂_z ≈ X_clean（去伪影，主）
         x_hat_z = self._final_output(res, dirty, masks, li_list)   # [B,1,Z,H,W]
         self.last_down_parts = losses.downstream_reconstruction_parts(x_hat_z, X_clean, loss_metal_mask)
-        _mse, _ssim = self.last_down_parts
-        down_loss = _mse + self.config.lambda_ssim * _ssim
+        _mse, _ssim, _grad = self.last_down_parts
+        down_loss = (_mse + self.config.lambda_ssim * _ssim + self.config.lambda_grad * _grad)
 
         # 4. L_pc（待定，保留现状）：μ 的金属 HU 物理一致性
         mu_fused = self._stack([s.mu for s in res.fused])          # [B,1,Z,H,W]

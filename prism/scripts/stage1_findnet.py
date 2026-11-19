@@ -40,6 +40,7 @@ _FRAMEWORK_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspat
 sys.path.insert(0, _FRAMEWORK_ROOT)
 
 from prism.models.find_net import FINDNet, FINDNetArgs
+from prism.models.find_net_gf import FINDNet as FINDNetGF, FINDNetArgs as FINDNetArgsGF
 from prism.models.r_theta import HU_SCALE
 from prism.data.dataset2d import Slice2DDataset, collate2d
 
@@ -94,7 +95,20 @@ def main():
     ap.add_argument("--data-dir", default="/root/autodl-tmp/PRISM/training_data_astra")
     ap.add_argument("--epochs", type=int, default=200)
     ap.add_argument("--batch-size", type=int, default=2)
-    ap.add_argument("--lr", type=float, default=2e-4)
+    ap.add_argument("--lr", type=float, default=5e-5,
+                    help="v2.1：初始学习率降至 5e-5，防早停过早/震荡")
+    ap.add_argument("--cosine-t-max", type=int, default=200,
+                    help="v2.1：Cosine 退火周期")
+    ap.add_argument("--cosine-eta-min", type=float, default=1e-6,
+                    help="v2.1：Cosine 退火末值 lr")
+    ap.add_argument("--no-early-stop", action="store_true",
+                    help="v2.1：关闭早停，跑满 --epochs")
+    ap.add_argument("--snapshot-epochs", type=str, default="50,100,150,200",
+                    help="v2.1：网格快照 epoch（逗号分隔），存 data_dir/checkpoints/")
+    ap.add_argument("--gf", action="store_true",
+                    help="v2.2：用 GF 版 FIND-Net（FourierUnit 加可学习 Gaussian 带通）")
+    ap.add_argument("--snapshot-prefix", type=str, default="stage1",
+                    help="快照文件名前缀（GF 用 stage1_gf 避免覆盖 No-GF 快照）")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--max-slices", type=int, default=0, help="0=全部；>0 取前 N 片 smoke")
@@ -148,7 +162,7 @@ def main():
         dl_val = DataLoader(ds_val, batch_size=args.val_batch_size, shuffle=False,
                             collate_fn=collate2d, num_workers=args.num_workers)
 
-    find_net = FINDNet(FINDNetArgs()).to(args.device)
+    find_net = (FINDNetGF(FINDNetArgsGF()) if args.gf else FINDNet(FINDNetArgs())).to(args.device)
     start_epoch = 0
     if args.resume:
         ck = torch.load(args.resume, map_location=args.device, weights_only=False)
@@ -156,9 +170,15 @@ def main():
         start_epoch = ck.get("config", {}).get("epoch", 0)
         print(f"[load] resume find_net from {args.resume} (epoch {start_epoch})", flush=True)
     opt = torch.optim.Adam(find_net.parameters(), lr=args.lr)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        opt, T_max=args.cosine_t_max, eta_min=args.cosine_eta_min)
+    snapshot_epochs = {int(x) for x in args.snapshot_epochs.split(",") if x.strip()}
+    ckpt_dir = os.path.join(args.data_dir, "checkpoints")
+    os.makedirs(ckpt_dir, exist_ok=True)
     n_params = sum(p.numel() for p in find_net.parameters())
     print(f"[model] FINDNet params={n_params} lr={args.lr} device={args.device} "
-          f"patience={args.patience} min_improvement={args.min_improvement}", flush=True)
+          f"cosine(T_max={args.cosine_t_max},eta_min={args.cosine_eta_min}) "
+          f"early_stop={not args.no_early_stop} snapshots={sorted(snapshot_epochs)}", flush=True)
 
     out = args.out or os.path.join(args.data_dir, "findnet_stage1.pt")
     best_val = float("inf")
@@ -199,23 +219,33 @@ def main():
         else:
             flag = ""
 
-        # 早停判定：最近 patience 个 epoch 验证 loss 相对下降 < min_improvement
+        # 早停判定：最近 patience 个 epoch 验证 loss 相对下降 < min_improvement（v2.1 可 --no-early-stop 关闭）
         val_hist.append(val_loss)
         stop = False
-        if len(val_hist) == args.patience and val_hist[0] > 0:
-            rel_improv = (val_hist[0] - val_hist[-1]) / val_hist[0]
-            if rel_improv < args.min_improvement:
-                stop = True
+        if not args.no_early_stop:
+            if len(val_hist) == args.patience and val_hist[0] > 0:
+                rel_improv = (val_hist[0] - val_hist[-1]) / val_hist[0]
+                if rel_improv < args.min_improvement:
+                    stop = True
 
         vstr = f"val={val_loss:.4f}" if val_loss == val_loss else "val=nan"
         bstr = f"best={best_val:.4f}" if best_val != float("inf") else "best=inf"
         print(f"[epoch {epoch + 1}/{args.epochs}] train={train_loss:.4f} {vstr} {bstr} "
               f"batches={n} {dt:.1f}s{flag}", flush=True)
 
+        # v2.1：网格快照（epoch 50/100/150/200 强制保存到 checkpoints/）
+        if (epoch + 1) in snapshot_epochs:
+            snap = os.path.join(ckpt_dir, f"{args.snapshot_prefix}_epoch{epoch + 1}.pt")
+            torch.save({"find_net": find_net.state_dict(),
+                        "config": {"epoch": epoch + 1, "lr": args.lr, "best_val": best_val}}, snap)
+            print(f"[snapshot] {snap}", flush=True)
+
         if args.save_every > 0 and (epoch + 1) % args.save_every == 0:
             torch.save({"find_net": find_net.state_dict(),
                         "config": {"epoch": epoch + 1, "lr": args.lr, "best_val": best_val}},
                        os.path.join(args.data_dir, f"findnet_stage1_epoch{epoch + 1}.pt"))
+
+        scheduler.step()
 
         if stop:
             print(f"[early-stop] 验证 loss 最近 {args.patience} epoch 相对下降 < "

@@ -102,8 +102,31 @@ def _ssim_loss(pred, target, mask=None):
     return loss.mean()
 
 
+def _gradient_loss(pred, target, mask=None):
+    """方向性梯度损失：分别算 x/y 方向 Sobel 梯度，返回 (loss_gx, loss_gy)。
+
+    v1.5：显式解耦 x/y 方向（为后续按伪影放射方向加权预留接口）。
+      loss_gx = L1(Sobel_x(pred), Sobel_x(target))
+      loss_gy = L1(Sobel_y(pred), Sobel_y(target))
+    注：v1.4 的实现在数学上已等价（gx+gy），v1.5 仅把两方向显式拆出。
+    """
+    sx = torch.tensor([[-1., 0., 1.], [-2., 0., 2.], [-1., 0., 1.]],
+                      dtype=pred.dtype, device=pred.device).view(1, 1, 3, 3)
+    sy = torch.tensor([[-1., -2., -1.], [0., 0., 0.], [1., 2., 1.]],
+                      dtype=pred.dtype, device=pred.device).view(1, 1, 3, 3)
+    loss_gx = (F.conv2d(pred, sx, padding=1) - F.conv2d(target, sx, padding=1)).abs()
+    loss_gy = (F.conv2d(pred, sy, padding=1) - F.conv2d(target, sy, padding=1)).abs()
+    if mask is not None:
+        loss_gx = (loss_gx * mask).sum() / (mask.sum() + _EPS)
+        loss_gy = (loss_gy * mask).sum() / (mask.sum() + _EPS)
+    else:
+        loss_gx = loss_gx.mean()
+        loss_gy = loss_gy.mean()
+    return loss_gx, loss_gy
+
+
 def downstream_reconstruction_parts(x_hat_z, X_clean, metal_mask=None, air_hu_thr: float = -500.0):
-    """返回 L_down 的两个 masked 分量 (mse, ssim)，供训练器打印诊断曲线。"""
+    """返回 L_down 的三个 masked 分量 (mse, ssim, grad)，供训练器打印诊断曲线。"""
     X_clean_p = X_clean.permute(0, 2, 1, 3, 4)          # [B,1,Z,H,W]
     resid = (x_hat_z - X_clean_p) / HU_SCALE
     if metal_mask is not None:
@@ -117,22 +140,24 @@ def downstream_reconstruction_parts(x_hat_z, X_clean, metal_mask=None, air_hu_th
     t = (X_clean_p / HU_SCALE).reshape(B * Z, C, H, W)
     m = mask.reshape(B * Z, C, H, W)
     ssim = _ssim_loss(p, t, m)
-    return mse, ssim
+    grad_x, grad_y = _gradient_loss(p, t, m)
+    grad = grad_x + grad_y       # 总 Loss = MSE + λ_ssim·SSIM + λ_grad·(loss_gx + loss_gy)
+    return mse, ssim, grad
 
 
 def downstream_reconstruction_loss(x_hat_z, X_clean, metal_mask=None, air_hu_thr: float = -500.0,
-                                   lambda_ssim: float = 0.1):
-    """L_down = masked_MSE + λ_ssim·(1−SSIM) —— 去伪影 + 高频结构约束（v1.3 baseline 定案）。
+                                   lambda_ssim: float = 0.25, lambda_grad: float = 0.1):
+    """L_down = masked_MSE + λ_ssim·(1−SSIM) + λ_grad·SobelGrad —— 去伪影 + 高频结构 + 边缘硬化。
 
     递归循环定案：x̂_z = FIND-Net(CT_ma=脏图, LIct=μ_pred, Mask) 是唯一最终输出，非金属区 I 监督。
     残差按 HU_SCALE=100 归一化。梯度经 x̂_z 回流：x̂_z 读 μ_pred → M_μ；观测经卡尔曼混合进 carry。
-    v1.1：屏蔽空气；v1.3：λ_ssim=0.1 高频结构约束（定案 baseline）。v1.4/v1.5 的 Grad 项已证
-    明在盲区空雕产生假锐化，废弃。
+    v1.1：屏蔽空气；v1.3：SSIM 高频结构；v1.4：λ_ssim 0.1→0.25，新增 Sobel 梯度损失
+    （λ_grad=0.1）逼网络在骨/气硬边界恢复锐利边缘，杜绝鼻窦/颅底/乳突气房的过度平滑。
 
     x_hat_z: [B,1,Z,H,W]（FIND-Net 输出，HU）；X_clean: [B,Z,1,H,W]；metal_mask: [B,Z,1,H,W]（1=金属）。
     """
-    mse, ssim = downstream_reconstruction_parts(x_hat_z, X_clean, metal_mask, air_hu_thr)
-    return mse + lambda_ssim * ssim
+    mse, ssim, grad = downstream_reconstruction_parts(x_hat_z, X_clean, metal_mask, air_hu_thr)
+    return mse + lambda_ssim * ssim + lambda_grad * grad
 
 
 def mu_fidelity_loss(mu, X_clean, metal_mask=None):

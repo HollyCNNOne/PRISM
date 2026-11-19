@@ -33,6 +33,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from .hifi_carve import HiFiCarve
+
 # ============================================================================
 # GroupNorm（替代官方 BatchNorm2d）
 # ============================================================================
@@ -336,6 +338,9 @@ class FINDNetArgs:
     # 前向 autograd 图 ~11GB/次，单次前向即 OOM（12GB 卡）。整网 checkpoint 无效（反向
     # 重算时又整网持图 11GB），必须按 ProxNet 粒度切：反向重算只持单个 ProxNet（~0.6GB）。
     use_checkpoint: bool = True
+    # v2.0-HiFi：在最后一个 Xnet 的特征上接 HiFi 刻画块（频域分家 + 内容门控），
+    # 增强 FIND-Net 对「预测组织高频」的刻画能力。默认 False = v1.3 基线。
+    use_hifi: bool = False
 
 
 _KERNEL_NPY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "init_kernel.npy")
@@ -387,6 +392,9 @@ class FINDNet(nn.Module):
 
         self.tau_const = torch.Tensor([1])
         self.tau = nn.Parameter(self.tau_const, requires_grad=True)
+
+        # v2.0-HiFi：最后一个 Xnet 输出的特征（num_Q+1 通道）上接刻画块
+        self.hifi = HiFiCarve(self.num_Q + 1) if args.use_hifi else None
 
     def make_Xnet(self, iters, args):
         return nn.Sequential(*[Xnet(args, ratio_index=i) for i in range(iters)])
@@ -471,6 +479,9 @@ class FINDNet(nn.Module):
             ListX.append(X)
 
         XQ_adjust = self._px(self.proxNet_X_last_layer, XQ)
+        # v2.0-HiFi：高频刻画（频域分家 + 内容门控），作用于 33 通道特征再取重建通道
+        if self.hifi is not None:
+            XQ_adjust = self.hifi(XQ_adjust)
         # v1.1：输出夹回 [0,255]（翻译服契约）。Xnet 是 F.relu(X+layer(X)) 残差，上界无界，
         # 空气区被 B_down 掩膜后无监督，FFC 边界角点可冲高。clamp 后反归一化锁定
         # [-1500, 3500] 物理量程（X/255*5000−1500）。
