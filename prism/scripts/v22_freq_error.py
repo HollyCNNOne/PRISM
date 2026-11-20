@@ -15,6 +15,7 @@ sys.path.insert(0, _FR)
 from prism.data.dataset import make_theta_sequence_loader
 from prism.models.m_network import MNetwork
 from prism.models.find_net import FINDNet, FINDNetArgs
+from prism.models.find_net_gf import FINDNet as FINDNetGF, FINDNetArgs as FINDNetArgsGF
 from prism.recursion.algorithm1 import forward_backward
 from prism.training.trainer import SSMTrainer
 from prism.utils.config import SSMConfig
@@ -148,15 +149,19 @@ def main():
     ap.add_argument("--stage2", default="/root/autodl-tmp/PRISM/training_data_astra/ssm_stage2.pt")
     ap.add_argument("--outdir", default="/root/autodl-tmp/PRISM/v2.2/fre_image/fre_error")
     ap.add_argument("--n-pillars", type=int, default=4)
+    ap.add_argument("--gf", action="store_true", help="stage1/stage2 用 GF 版 FIND-Net")
     ap.add_argument("--device", default="cuda")
     args = ap.parse_args()
+
+    FN = FINDNetGF if args.gf else FINDNet
+    FNA = FINDNetArgsGF if args.gf else FINDNetArgs
 
     device = args.device
     ck = torch.load(args.stage2, map_location=device, weights_only=False)
     cfg = ck["config"]
     m_net = MNetwork(nb=cfg.get("nb", 1), channels=cfg.get("channels", 32),
                      use_velocity=cfg.get("use_velocity", True)).to(device)
-    find_net = FINDNet(FINDNetArgs()).to(device)
+    find_net = FN(FNA()).to(device)
     m_net.load_state_dict(ck["model"])
     find_net.load_state_dict(ck["find_net"])
     config = SSMConfig(nb=cfg.get("nb", 1), channels=cfg.get("channels", 32),
@@ -167,7 +172,7 @@ def main():
     trainer = SSMTrainer(m_net, config, device=device, find_net=find_net)
 
     ck1 = torch.load(args.stage1, map_location=device, weights_only=False)
-    fn1 = FINDNet(FINDNetArgs()).to(device)
+    fn1 = FN(FNA()).to(device)
     fn1.load_state_dict(ck1["find_net"])
 
     for cat in ["complete", "large_residue", "medium_residue"]:
