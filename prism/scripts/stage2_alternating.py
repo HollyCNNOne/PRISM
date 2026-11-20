@@ -119,6 +119,39 @@ def masked_mse(x_hat, target, mask):
     return (se * m).sum() / (m.sum() + 1e-12)
 
 
+def _run_fullhead_stage2(trainer, m_net, rec, d_ref, data_dir, device):
+    """在 held-out 完整头颅序列上跑 SSM 全管线，返回 [Z,H,W] 最终输出（HU）。"""
+    from prism.recursion.algorithm1 import forward_backward
+    tr = os.path.join(data_dir, "train")
+    loader = make_theta_sequence_loader(
+        os.path.join(tr, "Target"), os.path.join(tr, "Baseline"),
+        os.path.join(tr, "LI"), os.path.join(tr, "Mask"),
+        os.path.join(tr, "Phys"))
+    sample = loader(rec.sids)
+    Z = len(rec.sids)
+    thetas = [{k: v.unsqueeze(0).to(device) for k, v in t.items()}
+              for t in sample["thetas"]]
+    metal_mask = sample["metal_mask"].unsqueeze(0).permute(0, 2, 1, 3, 4).to(device)
+    x_hat = sample["x_hat"].unsqueeze(0).to(device)
+    li = sample["li"].unsqueeze(0).to(device)
+    dirty_vol = x_hat.permute(0, 2, 1, 3, 4)
+    dirty = [dirty_vol[:, :, z] for z in range(Z)]
+    li_vol = li.permute(0, 2, 1, 3, 4)
+    li_list = [li_vol[:, :, z] for z in range(Z)]
+    masks = [metal_mask[:, :, z] for z in range(Z)]
+    observer = trainer._observer(dirty, masks, li_list)
+    m_net.eval()
+    trainer.find_net.eval()
+    with torch.no_grad():
+        res = forward_backward(m_net, thetas, d_ref,
+                               recursion=trainer.config.recursion,
+                               observer=observer, gain_mode=trainer.config.gain_mode)
+        x_hat_final = trainer._final_output(res, dirty, masks, li_list)
+    m_net.train()
+    trainer.find_net.train()
+    return x_hat_final[0, 0].cpu().numpy()
+
+
 def cycle(dl):
     while True:
         for b in dl:
@@ -179,6 +212,11 @@ def main():
                     help="Stage 1 产出的 find_net checkpoint（暖启动）")
     ap.add_argument("--gf", action="store_true",
                     help="v2.2：FIND-Net 用 GF 版（FourierUnit 加可学习 Gaussian 带通）")
+    ap.add_argument("--freq-record", action="store_true",
+                    help="V2.2：每 N 步记录 held-out 完整头颅的 3 频带 z 轴占比")
+    ap.add_argument("--freq-out", type=str,
+                    default="/root/autodl-tmp/PRISM/v2.2/fre_image/fre_epoch/freq_stage2.csv",
+                    help="频域记录 CSV 输出路径")
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
@@ -266,6 +304,14 @@ def main():
           f"binarize={args.binarize_mask} loss_metal={args.loss_include_metal} "
           f"force_short={args.force_recursion_short}", flush=True)
 
+    # V2.2 频域记录
+    freq_rec = None
+    if args.freq_record:
+        from prism.scripts.freq_recorder import FreqRecorder
+        freq_rec = FreqRecorder(args.data_dir,
+                                patient=(args.holdout_patient or "patients_head2"),
+                                out_csv=args.freq_out)
+
     def cycle_a():
         # 随机轮转 Z 组 + 组内循环，保证交替时跨 Z 打散
         while True:
@@ -340,6 +386,14 @@ def main():
             a_tot = {"total": 0.0, "q": 0.0, "pc": 0.0, "down": 0.0, "mu": 0.0}
             b_tot = 0.0
             na = nb = 0
+            # V2.2 频域记录（每 200 步记一次）
+            if freq_rec is not None:
+                try:
+                    out_vol = _run_fullhead_stage2(trainer, m_net, freq_rec,
+                                                   d_ref, args.data_dir, args.device)
+                    freq_rec.record(out_vol, step)
+                except Exception as e:
+                    print(f"[freq] 记录失败 step={step}: {e}", flush=True)
 
         if args.save_every > 0 and (step + 1) % args.save_every == 0:
             torch.save({"model": m_net.state_dict(), "find_net": find_net.state_dict(),
@@ -349,6 +403,10 @@ def main():
     torch.save({"model": m_net.state_dict(), "find_net": find_net.state_dict(),
                 "config": save_cfg(args.steps)}, out)
     print(f"[save] {out}", flush=True)
+
+    if freq_rec is not None:
+        csv_path = freq_rec.save()
+        print(f"[freq] 频域记录已存 {csv_path}", flush=True)
 
 
 if __name__ == "__main__":

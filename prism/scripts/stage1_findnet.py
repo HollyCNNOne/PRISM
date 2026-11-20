@@ -90,6 +90,21 @@ def _evaluate(find_net, dl_val, device):
     return tot / max(n, 1)
 
 
+def _run_fullhead_stage1(find_net, rec, device):
+    """在 held-out 完整头颅序列上逐片跑 FIND-Net（2D），返回 [Z,H,W] 输出（HU）。"""
+    find_net.eval()
+    outs = []
+    with torch.no_grad():
+        for z in range(rec.Z):
+            ct_ma = torch.from_numpy(rec.dirty[z][None, None].astype(np.float32)).to(device)
+            lict = torch.from_numpy(rec.li[z][None, None].astype(np.float32)).to(device)
+            mask = torch.from_numpy(rec.metal[z][None, None].astype(np.float32)).to(device)
+            x_hat = find_net.reconstruct(ct_ma, lict, mask)
+            outs.append(x_hat[0, 0].cpu().numpy())
+    find_net.train()
+    return np.stack(outs)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", default="/root/autodl-tmp/PRISM/training_data_astra")
@@ -109,6 +124,11 @@ def main():
                     help="v2.2：用 GF 版 FIND-Net（FourierUnit 加可学习 Gaussian 带通）")
     ap.add_argument("--snapshot-prefix", type=str, default="stage1",
                     help="快照文件名前缀（GF 用 stage1_gf 避免覆盖 No-GF 快照）")
+    ap.add_argument("--freq-record", action="store_true",
+                    help="V2.2：每 epoch 记录 held-out 完整头颅的 3 频带 z 轴占比")
+    ap.add_argument("--freq-out", type=str,
+                    default="/root/autodl-tmp/PRISM/v2.2/fre_image/fre_epoch/freq_stage1.csv",
+                    help="频域记录 CSV 输出路径")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--max-slices", type=int, default=0, help="0=全部；>0 取前 N 片 smoke")
@@ -184,6 +204,14 @@ def main():
     best_val = float("inf")
     val_hist = deque(maxlen=args.patience)
 
+    # V2.2 频域记录：每个 epoch 记录 held-out 完整头颅的 3 频带 z 轴占比
+    freq_rec = None
+    if args.freq_record:
+        from prism.scripts.freq_recorder import FreqRecorder
+        freq_rec = FreqRecorder(args.data_dir,
+                                patient=(val_patient or args.holdout_patient or "patients_head2"),
+                                out_csv=args.freq_out)
+
     for epoch in range(start_epoch, args.epochs):
         t0 = time.time()
         tot = 0.0
@@ -208,6 +236,14 @@ def main():
 
         # 验证集 loss（无增广、no_grad）
         val_loss = _evaluate(find_net, dl_val, args.device) if dl_val is not None else float("nan")
+
+        # V2.2 频域记录
+        if freq_rec is not None:
+            try:
+                out_vol = _run_fullhead_stage1(find_net, freq_rec, args.device)
+                freq_rec.record(out_vol, epoch)
+            except Exception as e:
+                print(f"[freq] 记录失败 epoch={epoch}: {e}", flush=True)
 
         # 最佳权重（验证 loss 新低 → 覆盖 --out）
         improved = val_loss < best_val
@@ -259,6 +295,10 @@ def main():
         torch.save({"find_net": find_net.state_dict(),
                     "config": {"epoch": args.epochs, "lr": args.lr}}, out)
         print(f"[done] 无验证集，末轮权重 → {out}", flush=True)
+
+    if freq_rec is not None:
+        csv_path = freq_rec.save()
+        print(f"[freq] 频域记录已存 {csv_path}", flush=True)
 
 
 if __name__ == "__main__":
