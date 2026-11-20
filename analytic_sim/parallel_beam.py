@@ -32,7 +32,7 @@ METAL_MU = 7.02            # mm⁻¹ = 350000 HU (Pt-W)
 PIXEL_MM = 220.16 / 512
 
 # 尺寸相关探测器 PSF σ（sinogram 探测器轴高斯模糊，单位=探测器像素）。
-PSF_BY_SIZE = {"small": 1.5, "medium": 2.0, "large": 4.5, "giant": 6.0}
+PSF_BY_SIZE = {"small": 6.0, "medium": 6.0, "large": 6.0, "giant": 6.0}
 
 I0 = 1e5
 N_VIEWS = 720
