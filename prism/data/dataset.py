@@ -98,6 +98,13 @@ def load_slice_phys(sample_id: str, phys_dir, target_dir, baseline_dir,
             raise ValueError(f"{path}: expected {tuple(shape)}, got {arr.shape}")
         return torch.from_numpy(arr)
 
+    def _np_or_zero(path, shape):
+        # tau_b/w_b 是 0 占位（radial LFR 未派生），V2.2 生成端不再写它们 →
+        # 缺失时回退为 0 张量（标量退化）。其它物理量仍必须存在，走 _np。
+        if os.path.exists(path):
+            return _np(path, shape)
+        return torch.zeros(shape)
+
     return {
         "X": _img(os.path.join(target_dir, f"{sample_id}.raw")),
         "x_hat": _img(os.path.join(baseline_dir, f"{sample_id}.raw")),
@@ -105,8 +112,8 @@ def load_slice_phys(sample_id: str, phys_dir, target_dir, baseline_dir,
         "x_M0": _np(os.path.join(phys_dir, f"{sample_id}_x_M0.npy"), (1, h, w)),
         "g": _np(os.path.join(phys_dir, f"{sample_id}_g.npy"), (1, h, w)),
         "d_j": _np(os.path.join(phys_dir, f"{sample_id}_d_j.npy"), (1, h, w)),
-        "tau_b": _np(os.path.join(phys_dir, f"{sample_id}_tau_b.npy"), (4, h, w)),
-        "w_b": _np(os.path.join(phys_dir, f"{sample_id}_w_b.npy"), (4, h, w)),
+        "tau_b": _np_or_zero(os.path.join(phys_dir, f"{sample_id}_tau_b.npy"), (4, h, w)),
+        "w_b": _np_or_zero(os.path.join(phys_dir, f"{sample_id}_w_b.npy"), (4, h, w)),
         "mask": _img(os.path.join(mask_dir, f"{sample_id}.raw")),
     }
 
