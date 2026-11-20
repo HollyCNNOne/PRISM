@@ -177,6 +177,12 @@ def main():
     ap.add_argument("--holdout-patient", default=None,
                     help="零泄漏切分：训练/冻结 d_ref 时排除该病人（如 patients_head2，最终盲测）")
     ap.add_argument("--lambda-q", type=float, default=1.0)
+    ap.add_argument("--shadow-r0", type=float, default=1.0 / 9.0,
+                    help="阴影门阈值 r0（r=d_j/d_ref<r0 → 完全阴影）。V2.2 用 0.192 "
+                         "（非金属可见体素 21.6 分位 / d_ref，保持旧评测比例）")
+    ap.add_argument("--suff-r-hi", type=float, default=9.0,
+                    help="充分区上界 r_hi（r>r_hi → 充分）。V2.2 用 2.475"
+                         "（96.1 分位/d_ref）。仅用于 eval 分区，不影响训练")
     ap.add_argument("--lambda-pc", type=float, default=0.1)
     ap.add_argument("--lambda-down", type=float, default=1.0)
     ap.add_argument("--lambda-mu", type=float, default=1.0)
@@ -272,7 +278,8 @@ def main():
                       collate_fn=collate2d, num_workers=args.num_workers, drop_last=True)
 
     m_net = MNetwork(nb=args.nb, channels=args.channels,
-                     use_velocity=not args.no_velocity).to(args.device)
+                     use_velocity=not args.no_velocity,
+                     shadow_r0=args.shadow_r0).to(args.device)
     find_net = (FINDNetGF(FINDNetArgsGF()) if args.gf else FINDNet(FINDNetArgs())).to(args.device)
     if args.resume_findnet:
         ck = torch.load(args.resume_findnet, map_location=args.device, weights_only=False)
@@ -336,6 +343,8 @@ def main():
                 "binarize_mask": args.binarize_mask, "mask_bin_thr": args.mask_bin_thr,
                 "loss_include_metal": args.loss_include_metal,
                 "lambda_ssim": args.lambda_ssim,
+                "shadow_r0": args.shadow_r0,
+                "suff_r_hi": args.suff_r_hi,
                 "backfill_r": args.backfill_r}
 
     a_tot = {"total": 0.0, "q": 0.0, "pc": 0.0, "down": 0.0, "mu": 0.0}

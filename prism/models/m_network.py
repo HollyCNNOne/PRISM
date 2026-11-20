@@ -114,9 +114,14 @@ HU_SCALE_GATE = 100.0
 class MNetwork(nn.Module):
     def __init__(self, nb: int = 4, channels: int = 32, use_velocity: bool = True,
                  gate_reads_dj: bool = False, decouple_mean: bool = False,
-                 ablate_xm0: bool = False, ablate_dj: bool = False, ablate_g: bool = False):
+                 ablate_xm0: bool = False, ablate_dj: bool = False, ablate_g: bool = False,
+                 shadow_r0: float = 1.0 / 9.0):
         super().__init__()
         self.nb = nb
+        # 阴影门阈值 r0（r=d_j/d_ref < r0 → 完全阴影 → 观测精度归零、K→1 信先验）。
+        # V2.2 的 d_j 动态范围与旧数据不同，r0 由「非金属可见体素的 21.6 分位 / d_ref」
+        # 标定（保持旧评测 21.6% 完全阴影的比例）；旧数据默认 1/9。见 RESEARCH_LOG。
+        self.shadow_r0 = shadow_r0
         # B 消融（H3）B1「去速度」：use_velocity=False 时速度项 Δμ 不进 backbone / M_μ（置 0），
         # 架构与参数量不变，只砍速度信息（位置+速度模型 → 纯位置模型）。
         self.use_velocity = use_velocity
@@ -293,7 +298,7 @@ class MNetwork(nn.Module):
         # s(r)：r=d_j/d_ref < r0(1/9) 完全阴影 → s→0 → K→1 信先验（别把打穿的观测漏进 μ）；
         # r>r0 部分阴影 → s→1 → K→0 信观测。s 同时进 gain 与 update（打穿的观测既不进均值
         # 也不进精度）。修 B7 完全阴影 μ_bias +686 的根因：K 太软（p_sum 小），漏观测。
-        s = shadow_obs_scale(Theta["d_j"], d_ref)
+        s = shadow_obs_scale(Theta["d_j"], d_ref, r0=self.shadow_r0)
 
         # 增益（定义式，恒标量 [B, 1, H, W]）
         K = kalman_gain(p_pred, Theta["d_j"], d_ref, tau_eff, s=s)

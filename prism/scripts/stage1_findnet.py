@@ -132,6 +132,10 @@ def main():
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--max-slices", type=int, default=0, help="0=全部；>0 取前 N 片 smoke")
+    ap.add_argument("--subsample", type=int, default=0,
+                    help=">0 时按 seed 随机抽 N 片训练（加速；0=不抽样）")
+    ap.add_argument("--val-subsample", type=int, default=0,
+                    help=">0 时按 seed 随机抽 N 片验证（加速；0=不抽样）")
     ap.add_argument("--save-every", type=int, default=20)
     ap.add_argument("--num-workers", type=int, default=0)
     ap.add_argument("--no-augment", action="store_true")
@@ -155,8 +159,19 @@ def main():
     val_patient = args.val_patient or args.holdout_patient
     sample_ids = build_sample_ids(os.path.join(args.data_dir, "meta"), args.max_slices,
                                   args.holdout_patient)
+    # 随机子采样（加速：完整头颅数据 ~1850 片/epoch 太慢）。固定 seed → 可复现；
+    # 按 sorted 列表随机抽取，避免 --max-slices 那种「只取前 N 片=只取一个植入体」的偏置。
+    if args.subsample > 0 and len(sample_ids) > args.subsample:
+        import random as _random
+        _rng = _random.Random(args.seed)
+        sample_ids = sorted(_rng.sample(sorted(sample_ids), args.subsample))
+        print(f"[data] 随机子采样 train: {args.subsample} 片（seed={args.seed}）", flush=True)
     val_ids = build_sample_ids(os.path.join(args.data_dir, "meta"), 0,
                                val_patient=val_patient) if val_patient else []
+    if args.val_subsample > 0 and len(val_ids) > args.val_subsample:
+        import random as _random
+        _rng = _random.Random(args.seed + 1)
+        val_ids = sorted(_rng.sample(sorted(val_ids), args.val_subsample))
     print(f"[data] train={len(sample_ids)} slices (2D flattened, augment={not args.no_augment}, "
           f"holdout={args.holdout_patient!r})  val={len(val_ids)} slices (patient={val_patient!r})",
           flush=True)

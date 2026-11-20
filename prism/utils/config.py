@@ -61,3 +61,7 @@ class SSMConfig:
     lambda_ssim: float = 0.25        # v1.4：L_down 内 SSIM 高频结构约束权重（0=关；0.1→0.25）
     lambda_grad: float = 0.1         # v1.4：L_down 内 Sobel 边缘梯度损失权重（0=关；逼骨/气硬边界锐利）
     backfill_r: int = 8              # v1.3：最终输出金属回填的形态学膨胀半径 px（0=关）
+    # V2.2 阴影分区标定：r=d_j/d_ref。旧数据 r0=1/9、r_hi=9；V2.2 的 d_j 动态范围更窄，
+    # 按「非金属可见体素 21.6 / 96.1 分位」标定为 r0=0.192、r_hi=2.475，保持旧评测比例。
+    shadow_r0: float = 1.0 / 9.0
+    suff_r_hi: float = 9.0

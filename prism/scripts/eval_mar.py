@@ -133,10 +133,15 @@ def main():
     mask_bin_thr = cfg.get("mask_bin_thr", 0.5)
     recursion = cfg.get("recursion", args.recursion)
     backfill_r = cfg.get("backfill_r", 8)
+    # 阴影分区阈值：优先 checkpoint（训练时的标定），否则用 CLI / 旧默认 1/9、9
+    shadow_r0 = cfg.get("shadow_r0", args.transition_r_low)
+    suff_r_hi = cfg.get("suff_r_hi", 9.0)
+    r_low_eval = args.transition_r_low if args.transition_r_low != 1.0 / 9.0 else shadow_r0
 
     m_net = MNetwork(nb=nb, channels=channels, use_velocity=use_velocity,
                      gate_reads_dj=gate_reads_dj,
-                     ablate_xm0=ablate_xm0, ablate_dj=ablate_dj, ablate_g=ablate_g).to(args.device)
+                     ablate_xm0=ablate_xm0, ablate_dj=ablate_dj, ablate_g=ablate_g,
+                     shadow_r0=shadow_r0).to(args.device)
     find_net = FINDNet(FINDNetArgs()).to(args.device)
     m_net.load_state_dict(ckpt["model"])
     find_net.load_state_dict(ckpt["find_net"])
@@ -225,16 +230,16 @@ def main():
 
             for name in SSE:
                 sel = (I > 0.5) & (valid_eval > 0.5)     # 非金属 ∩ 有效评估域（排除回填区）
-                sel = sel & (r > 9.0) if name == "充分" else sel
-                sel = sel & (r < 1.0 / 9.0) if name == "完全阴影" else sel
+                sel = sel & (r > suff_r_hi) if name == "充分" else sel
+                sel = sel & (r < shadow_r0) if name == "完全阴影" else sel
                 if name == "部分阴影":
-                    sel = sel & (r >= 1.0 / 9.0) & (r <= 9.0)
+                    sel = sel & (r >= shadow_r0) & (r <= suff_r_hi)
                 SSE[name] += float(err[sel].sum().item())
                 CNT[name] += int(sel.sum().item())
 
             # 过渡区（金属外扩环带 ∩ 光子饥饿）与全局非金属。
             tz = transition_zone_mask(metal_mask, r, args.transition_dilate_px,
-                                      backfill_r, args.transition_r_low)
+                                      backfill_r, r_low_eval)
             tz_sse += float((err * tz).sum().item())
             tz_sumerr += float((signed_err * tz).sum().item())
             tz_cnt += int(tz.sum().item())
