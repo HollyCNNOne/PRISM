@@ -401,6 +401,7 @@ def main():
                     out_vol = _run_fullhead_stage2(trainer, m_net, freq_rec,
                                                    d_ref, args.data_dir, args.device)
                     freq_rec.record(out_vol, step)
+                    freq_rec.save()   # 每记录点落盘
                 except Exception as e:
                     print(f"[freq] 记录失败 step={step}: {e}", flush=True)
 

@@ -257,6 +257,7 @@ def main():
             try:
                 out_vol = _run_fullhead_stage1(find_net, freq_rec, args.device)
                 freq_rec.record(out_vol, epoch)
+                freq_rec.save()   # 每 epoch 落盘，崩溃/中断不丢历史
             except Exception as e:
                 print(f"[freq] 记录失败 epoch={epoch}: {e}", flush=True)
 
