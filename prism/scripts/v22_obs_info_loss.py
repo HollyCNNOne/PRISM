@@ -34,30 +34,25 @@ def find_split(data_dir, sid, sub):
     return None
 
 
-def clean_fbp(clean, sid, cache_dir):
-    """零金属 FBP 重建（植入前观测），带缓存。"""
+def clean_fbp(clean, cat, sid, cache_dir):
+    """零金属 FBP（植入前观测）——用解析线唯一真源 parallel_beam，与 Baseline 同噪声实现。"""
     os.makedirs(cache_dir, exist_ok=True)
     cpath = os.path.join(cache_dir, f"{sid}_cleanFBP.npy")
     if os.path.exists(cpath):
         return np.load(cpath).astype(np.float32)
-    # 复用上次 d_j_before 的 work dir 里已算好的 FBP
-    hits = glob.glob(os.path.join(cache_dir, f"w_{sid}", "**", "out_512x512x1.raw"), recursive=True)
-    if hits:
-        out = read_raw(hits[0])
-    else:
-        sys.path.insert(0, COIL)
-        from batch_simulate import simulate_astra, write_raw
-        work = os.path.join(cache_dir, f"w_{sid}")
-        os.makedirs(work, exist_ok=True)
-        cp = os.path.join(work, "clean.raw")
-        mp = os.path.join(work, "mask_zero.raw")
-        write_raw(cp, clean.astype(np.float32))
-        write_raw(mp, np.zeros_like(clean, np.float32))
-        ap, _, _ = simulate_astra(cp, mp, anatomy="h", work_dir=work,
-                                  generate_li=False, seed=0)
-        out = read_raw(ap)
-    np.save(cpath, out)
-    return out
+
+    sys.path.insert(0, COIL)
+    from parallel_beam import (simulate_sino, THETA, PIXEL_MM, BASELINE_FILTER,
+                               LO, HI, mu_to_hu)
+    from skimage.transform import iradon
+
+    seed = int(str(sid).rsplit("_", 1)[1])
+    L = simulate_sino(clean, np.zeros_like(clean), cat, seed)      # 零金属
+    mu = iradon(L / PIXEL_MM, theta=THETA, filter_name=BASELINE_FILTER, circle=True)
+    hu = np.clip(mu_to_hu(mu), LO, HI).astype(np.float32)
+    hu[clean <= -500.0] = -1000.0
+    np.save(cpath, hu)
+    return hu
 
 
 def main():
@@ -69,9 +64,10 @@ def main():
     os.makedirs(args.outdir, exist_ok=True)
 
     meta_dir = os.path.join(args.data_dir, "meta")
-    by_size = {s: [] for s in SIZES}
+    meta, by_size = {}, {s: [] for s in SIZES}
     for f in glob.glob(os.path.join(meta_dir, "*.json")):
         m = json.load(open(f))
+        meta[m["sample_id"]] = m
         if m.get("category") in by_size:
             by_size[m["category"]].append(m["sample_id"])
 
@@ -96,7 +92,7 @@ def main():
         bl = read_raw(find_split(args.data_dir, best, "Baseline"))
         mask = read_raw(find_split(args.data_dir, best, "Mask"))
         tissue = (mask <= MASK_EPS) & (gt > AIR_HU)
-        cf = clean_fbp(gt, best, args.cache)
+        cf = clean_fbp(gt, meta[best].get('category','medium'), best, args.cache)
 
         e_before = np.abs(cf - gt)[tissue]
         e_after = np.abs(bl - gt)[tissue]

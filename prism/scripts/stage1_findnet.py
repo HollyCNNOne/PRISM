@@ -45,6 +45,19 @@ from prism.models.r_theta import HU_SCALE
 from prism.data.dataset2d import Slice2DDataset, collate2d
 
 
+def filter_metal(ids, mask_dir, thr=1e-3):
+    """只保留 mask.max() > thr 的切片（含金属）。完整头颅数据里金属片只占 ~4%，
+    训练/验证都限定在「有金属」的片上，val 才反映真实去伪影能力。"""
+    out = []
+    for sid in ids:
+        p = os.path.join(mask_dir, f"{sid}.raw")
+        if not os.path.exists(p):
+            continue
+        if np.fromfile(p, dtype=np.float32).max() > thr:
+            out.append(sid)
+    return out
+
+
 def build_sample_ids(meta_dir, max_slices=0, holdout_patient=None, val_patient=None):
     """读 split=train 的样本；holdout_patient 排除、val_patient 只取（二者互斥用法）。"""
     ids = []
@@ -136,6 +149,9 @@ def main():
                     help=">0 时按 seed 随机抽 N 片训练（加速；0=不抽样）")
     ap.add_argument("--val-subsample", type=int, default=0,
                     help=">0 时按 seed 随机抽 N 片验证（加速；0=不抽样）")
+    ap.add_argument("--metal-only", action="store_true",
+                    help="训练/验证都只保留含金属的切片（mask.max>1e-3）")
+    ap.add_argument("--metal-thr", type=float, default=1e-3)
     ap.add_argument("--save-every", type=int, default=20)
     ap.add_argument("--num-workers", type=int, default=0)
     ap.add_argument("--no-augment", action="store_true")
@@ -161,6 +177,14 @@ def main():
                                   args.holdout_patient)
     # 随机子采样（加速：完整头颅数据 ~1850 片/epoch 太慢）。固定 seed → 可复现；
     # 按 sorted 列表随机抽取，避免 --max-slices 那种「只取前 N 片=只取一个植入体」的偏置。
+    if args.metal_only:
+        _md = os.path.join(train_dir, "Mask")
+        n0 = len(sample_ids)
+        sample_ids = filter_metal(sample_ids, _md, args.metal_thr)
+        n1 = len(val_ids)
+        val_ids = filter_metal(val_ids, _md, args.metal_thr) if val_ids else []
+        print(f"[data] metal-only 过滤: train {n0}->{len(sample_ids)}, val {n1}->{len(val_ids)}",
+              flush=True)
     if args.subsample > 0 and len(sample_ids) > args.subsample:
         import random as _random
         _rng = _random.Random(args.seed)
