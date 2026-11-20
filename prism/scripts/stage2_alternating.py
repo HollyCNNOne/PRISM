@@ -152,6 +152,53 @@ def _run_fullhead_stage2(trainer, m_net, rec, d_ref, data_dir, device):
     return x_hat_final[0, 0].cpu().numpy()
 
 
+def _build_eval_specs(meta_dir, patient, max_z, k=6):
+    """held-out 病人 → 用于收敛判断的固定序列子集（最长 k 条，截断到 max_z）。"""
+    by = defaultdict(list)
+    for f in glob.glob(os.path.join(meta_dir, "*.json")):
+        m = json.load(open(f))
+        if m.get("patient_id") == patient:
+            by[m["sequence_id"]].append(m["sample_id"])
+    specs = [sorted(v, key=_sample_idx) for v in by.values() if len(v) >= 3]
+    specs.sort(key=lambda x: -len(x))
+    specs = specs[:k]
+    if max_z > 0:
+        specs = [x[:max_z] for x in specs]
+    return specs
+
+
+def _eval_holdout(trainer, m_net, loader, specs, d_ref, device):
+    """held-out 非金属组织的平均绝对误差（HU）——收敛判据。"""
+    from prism.recursion.algorithm1 import forward_backward
+    m_net.eval(); trainer.find_net.eval()
+    se, cnt = 0.0, 0
+    with torch.no_grad():
+        for spec in specs:
+            sample = loader(spec)
+            Z = len(spec)
+            thetas = [{k: v.unsqueeze(0).to(device) for k, v in t.items()}
+                      for t in sample["thetas"]]
+            Xc = sample["X_clean"].unsqueeze(0).permute(0, 2, 1, 3, 4).to(device)
+            mm = sample["metal_mask"].unsqueeze(0).permute(0, 2, 1, 3, 4).to(device)
+            xh = sample["x_hat"].unsqueeze(0).to(device)
+            li = sample["li"].unsqueeze(0).to(device)
+            dv = xh.permute(0, 2, 1, 3, 4)
+            dirty = [dv[:, :, z] for z in range(Z)]
+            lv = li.permute(0, 2, 1, 3, 4)
+            li_l = [lv[:, :, z] for z in range(Z)]
+            masks = [mm[:, :, z] for z in range(Z)]
+            obs = trainer._observer(dirty, masks, li_l)
+            res = forward_backward(m_net, thetas, d_ref,
+                                   recursion=trainer.config.recursion,
+                                   observer=obs, gain_mode=trainer.config.gain_mode)
+            out = trainer._final_output(res, dirty, masks, li_l)
+            sel = ((1.0 - mm) > 0.5) & (Xc > -500.0)
+            se += float((out - Xc).abs()[sel].sum().item())
+            cnt += int(sel.sum().item())
+    m_net.train(); trainer.find_net.train()
+    return se / max(cnt, 1)
+
+
 def cycle(dl):
     while True:
         for b in dl:
@@ -212,6 +259,12 @@ def main():
     ap.add_argument("--max-z", type=int, default=0)
     ap.add_argument("--num-workers", type=int, default=0)
     ap.add_argument("--save-every", type=int, default=500)
+    ap.add_argument("--eval-every", type=int, default=100,
+                    help="每 N 步做一次 held-out 收敛评估（0=关）")
+    ap.add_argument("--stop-patience", type=int, default=3,
+                    help="连续 N 次评估无 >min-improvement 改进则停")
+    ap.add_argument("--min-improvement", type=float, default=0.01,
+                    help="相对改进阈值（1%%）")
     ap.add_argument("--out", default=None,
                     help="checkpoint 输出路径（None=默认 data_dir/ssm_stage2.pt；消融矩阵每臂一个）")
     ap.add_argument("--resume-findnet", default=None,
@@ -347,6 +400,14 @@ def main():
                 "suff_r_hi": args.suff_r_hi,
                 "backfill_r": args.backfill_r}
 
+    # ---- 收敛监控（held-out 非金属 MAE）----
+    eval_specs, best_eval, bad_cnt = [], float("inf"), 0
+    if args.eval_every > 0 and args.holdout_patient:
+        eval_specs = _build_eval_specs(os.path.join(args.data_dir, "meta"),
+                                       args.holdout_patient, args.max_z, k=6)
+        print(f"[eval] held-out 收敛监控: {len(eval_specs)} 条序列 "
+              f"(每 {args.eval_every} 步, patience={args.stop_patience})", flush=True)
+
     a_tot = {"total": 0.0, "q": 0.0, "pc": 0.0, "down": 0.0, "mu": 0.0}
     b_tot = 0.0
     na = nb = 0
@@ -409,6 +470,25 @@ def main():
             torch.save({"model": m_net.state_dict(), "find_net": find_net.state_dict(),
                         "config": save_cfg(step + 1)}, out)
             print(f"[save] {out}", flush=True)
+
+        # ---- 收敛评估（按整步长，即「取整 epoch」）----
+        if eval_specs and (step + 1) % args.eval_every == 0:
+            v = _eval_holdout(trainer, m_net, seq_loader, eval_specs, d_ref, args.device)
+            improved = v < best_eval * (1.0 - args.min_improvement)
+            if improved:
+                best_eval, bad_cnt = v, 0
+                torch.save({"model": m_net.state_dict(), "find_net": find_net.state_dict(),
+                            "config": save_cfg(step + 1)}, out)
+                flag = " *BEST*"
+            else:
+                bad_cnt += 1
+                flag = ""
+            print(f"[eval step {step + 1}] holdout MAE={v:.1f} HU  best={best_eval:.1f}  "
+                  f"bad={bad_cnt}/{args.stop_patience}{flag}", flush=True)
+            if bad_cnt >= args.stop_patience:
+                print(f"[stop] 收敛：连续 {bad_cnt} 次无 >{args.min_improvement:.0%} 改进，"
+                      f"停止于 step {step + 1}，最佳 {best_eval:.1f} HU", flush=True)
+                break
 
     torch.save({"model": m_net.state_dict(), "find_net": find_net.state_dict(),
                 "config": save_cfg(args.steps)}, out)
