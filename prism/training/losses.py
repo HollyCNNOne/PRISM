@@ -125,7 +125,8 @@ def _gradient_loss(pred, target, mask=None):
     return loss_gx, loss_gy
 
 
-def downstream_reconstruction_parts(x_hat_z, X_clean, metal_mask=None, air_hu_thr: float = -500.0):
+def downstream_reconstruction_parts(x_hat_z, X_clean, metal_mask=None, air_hu_thr: float = -500.0,
+                                    zfreq_gain: float = 0.0, zfreq_scale: float = 50.0):
     """返回 L_down 的三个 masked 分量 (mse, ssim, grad)，供训练器打印诊断曲线。"""
     X_clean_p = X_clean.permute(0, 2, 1, 3, 4)          # [B,1,Z,H,W]
     resid = (x_hat_z - X_clean_p) / HU_SCALE
@@ -134,6 +135,13 @@ def downstream_reconstruction_parts(x_hat_z, X_clean, metal_mask=None, air_hu_th
     else:
         mask = torch.ones_like(x_hat_z)
     mask = mask * (X_clean_p > air_hu_thr).float()      # 屏蔽空气，只留组织
+    if zfreq_gain > 0.0:
+        # exp008 频率加权（Sobolev 式，沿 z）：GT 的 z 一阶差分大的地方（高频结构）
+        # 误差权重更高 —— 逼网络在 z 高频处也别抹平。权重上界 1+4·gain，防爆炸。
+        gz = torch.zeros_like(X_clean_p)
+        gz[:, :, 1:] = (X_clean_p[:, :, 1:] - X_clean_p[:, :, :-1]).abs()
+        w = 1.0 + zfreq_gain * (gz / zfreq_scale).clamp(max=4.0)
+        mask = mask * w
     mse = ((resid ** 2) * mask).sum() / (mask.sum() + _EPS)
     B, C, Z, H, W = x_hat_z.shape
     p = (x_hat_z / HU_SCALE).reshape(B * Z, C, H, W)

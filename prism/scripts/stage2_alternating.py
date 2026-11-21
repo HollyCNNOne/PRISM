@@ -227,6 +227,10 @@ def main():
     ap.add_argument("--shadow-r0", type=float, default=1.0 / 9.0,
                     help="阴影门阈值 r0（r=d_j/d_ref<r0 → 完全阴影）。V2.2 用 0.192 "
                          "（非金属可见体素 21.6 分位 / d_ref，保持旧评测比例）")
+    ap.add_argument("--use-z-curvature", action="store_true",
+                    help="exp007：骨干额外读 z 二阶差分 |μ_{z-1}−μ_{z-2}|（内容自适应极点）")
+    ap.add_argument("--zfreq-gain", type=float, default=0.0,
+                    help="exp008：L_down 按 GT 的 z 高频加权（0=关；建议 1.0）")
     ap.add_argument("--suff-r-hi", type=float, default=9.0,
                     help="充分区上界 r_hi（r>r_hi → 充分）。V2.2 用 2.475"
                          "（96.1 分位/d_ref）。仅用于 eval 分区，不影响训练")
@@ -332,7 +336,8 @@ def main():
 
     m_net = MNetwork(nb=args.nb, channels=args.channels,
                      use_velocity=not args.no_velocity,
-                     shadow_r0=args.shadow_r0).to(args.device)
+                     shadow_r0=args.shadow_r0,
+                     use_z_curvature=args.use_z_curvature).to(args.device)
     find_net = (FINDNetGF(FINDNetArgsGF()) if args.gf else FINDNet(FINDNetArgs())).to(args.device)
     if args.resume_findnet:
         ck = torch.load(args.resume_findnet, map_location=args.device, weights_only=False)
@@ -346,6 +351,7 @@ def main():
                        lambda_ssim=args.lambda_ssim,
                        backfill_r=args.backfill_r,
                        recursion=args.recursion, d_ref=d_ref,
+                       zfreq_gain=args.zfreq_gain,
                        cold_start_init=args.cold_start_init,
                        gain_mode=args.gain_mode,
                        findnet_lict_source=args.findnet_lict,
@@ -397,6 +403,8 @@ def main():
                 "loss_include_metal": args.loss_include_metal,
                 "lambda_ssim": args.lambda_ssim,
                 "shadow_r0": args.shadow_r0,
+                "use_z_curvature": args.use_z_curvature,
+                "zfreq_gain": args.zfreq_gain,
                 "suff_r_hi": args.suff_r_hi,
                 "backfill_r": args.backfill_r}
 

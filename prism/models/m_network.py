@@ -115,13 +115,17 @@ class MNetwork(nn.Module):
     def __init__(self, nb: int = 4, channels: int = 32, use_velocity: bool = True,
                  gate_reads_dj: bool = False, decouple_mean: bool = False,
                  ablate_xm0: bool = False, ablate_dj: bool = False, ablate_g: bool = False,
-                 shadow_r0: float = 1.0 / 9.0):
+                 shadow_r0: float = 1.0 / 9.0, use_z_curvature: bool = False):
         super().__init__()
         self.nb = nb
         # 阴影门阈值 r0（r=d_j/d_ref < r0 → 完全阴影 → 观测精度归零、K→1 信先验）。
         # V2.2 的 d_j 动态范围与旧数据不同，r0 由「非金属可见体素的 21.6 分位 / d_ref」
         # 标定（保持旧评测 21.6% 完全阴影的比例）；旧数据默认 1/9。见 RESEARCH_LOG。
         self.shadow_r0 = shadow_r0
+        # exp007（内容自适应极点）：骨干额外读「z 二阶差分」|μ_{z-1} − μ_{z-2}|，
+        # 即「变化本身在怎么变」（z 曲率）。平滑段曲率小 → Δ 可大（强平滑）；
+        # 陡变段曲率大 → Δ 小（响应近平坦，跟上跳变）。默认关，不影响既有实验。
+        self.use_z_curvature = use_z_curvature
         # B 消融（H3）B1「去速度」：use_velocity=False 时速度项 Δμ 不进 backbone / M_μ（置 0），
         # 架构与参数量不变，只砍速度信息（位置+速度模型 → 纯位置模型）。
         self.use_velocity = use_velocity
@@ -141,8 +145,9 @@ class MNetwork(nn.Module):
         self.ablate_dj = ablate_dj
         self.ablate_g = ablate_g
         # 1. 骨干 h_z：读 [|Δμ_{z-1}|, |x_M0_{z-1} − x_M0_{z-2}|]（+可选 d_j/d_ref），浅 2 层 32ch
+        _bb_in = 2 + (1 if gate_reads_dj else 0) + (1 if use_z_curvature else 0)
         self.backbone = nn.Sequential(
-            nn.Conv2d(3 if gate_reads_dj else 2, channels, 3, padding=1),
+            nn.Conv2d(_bb_in, channels, 3, padding=1),
             nn.ReLU(inplace=True),
             nn.Conv2d(channels, channels, 3, padding=1),
             nn.ReLU(inplace=True),
@@ -262,12 +267,15 @@ class MNetwork(nn.Module):
             metal_diff = (xM0_prev - xM0_prevprev).abs()
         else:
             metal_diff = torch.zeros_like(delta_mu_prev)
+        _parts = [delta_mu_prev, metal_diff]
         if self.gate_reads_dj:
             # Δ 读当前片数据充分度 d_j/d_ref（O(1) 归一化，同 M_μ/精度更新的尺度），
             # 让门控能直接「看见阴影」→ 学 Δ→0（carry 上一片干净先验），而非在阴影里信盲的 M_μ。
-            h = self.backbone(torch.cat([delta_mu_prev, metal_diff, Theta["d_j"] / d_ref], dim=1))
-        else:
-            h = self.backbone(torch.cat([delta_mu_prev, metal_diff], dim=1))
+            _parts.append(Theta["d_j"] / d_ref)
+        if self.use_z_curvature:
+            # z 二阶差分（曲率）：|μ_{z-1} − μ_{z-2}|。S_prev_prev 边界片用 S_prev 兜底 → 0。
+            _parts.append((S_prev.mu - S_prev_prev.mu).abs())
+        h = self.backbone(torch.cat(_parts, dim=1))
 
         # 头 Δ_z（C2：sigmoid × 0.9）
         delta = torch.sigmoid(self.g_delta(h)) * DELTA_MAX

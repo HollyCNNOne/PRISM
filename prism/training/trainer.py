@@ -214,7 +214,8 @@ class SSMTrainer:
 
         # 3. L_down：FIND-Net 唯一输出 x̂_z ≈ X_clean（去伪影，主）
         x_hat_z = self._final_output(res, dirty, masks, li_list)   # [B,1,Z,H,W]
-        self.last_down_parts = losses.downstream_reconstruction_parts(x_hat_z, X_clean, loss_metal_mask)
+        self.last_down_parts = losses.downstream_reconstruction_parts(
+            x_hat_z, X_clean, loss_metal_mask, zfreq_gain=self.config.zfreq_gain)
         _mse, _ssim, _grad = self.last_down_parts
         down_loss = (_mse + self.config.lambda_ssim * _ssim + self.config.lambda_grad * _grad)
 
