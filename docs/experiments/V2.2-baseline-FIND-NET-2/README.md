@@ -1,9 +1,9 @@
 # V2.2-baseline-FIND-NET-2
 
 > **本文档的职责（三份文档分工）**
-> - `_scratch/RESEARCH_LOG.md` = **科研日志**：只写分析、推理、判断、对论文的含义
-> - `experiments/<编号>/README.md` = **实验日志（本文）**：只写怎么做的、产物在哪、怎么复现、状态与问题
-> - `_scratch/DATA_LOG.md` = **数据日志**：只写数值、索引、口径、验证、作废记录
+> - `docs/RESEARCH_LOG.md` = **科研日志**：只写分析、推理、判断、对论文的含义
+> - `docs/experiments/<编号>/README.md` = **实验日志（本文）**：只写怎么做的、产物在哪、怎么复现、状态与问题
+> - `docs/DATA_LOG.md` = **数据日志**：只写数值、索引、口径、验证、作废记录
 
 | 项 | 值 |
 |---|---|
@@ -73,7 +73,7 @@ held-out `patients_head2` 共 12 条序列，每 size 3 条。代表片金属量
 | `results/tables/err_dist_multi.csv` | 逐片逐状态全量（12 片 × 3 状态） |
 | `results/figures/err_dist_multi.png` | 四尺寸 × 三状态 CDF（跨代表片平均） |
 
-本地镜像：`_scratch/images/V2.2/err_dist/`
+本地镜像：`results/figures/`
 
 ## 7. 复现
 

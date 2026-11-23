@@ -1,0 +1,13 @@
+# V2.2-baseline-SSM-3 复现命令（服务器，conda env pzneuro）
+DATA=/root/autodl-tmp/PRISM/training_data_astra
+OUT=/root/autodl-tmp/PRISM/v2.2/zdistance
+
+python prism_framework/prism/scripts/v22_zdistance.py \
+  --data-dir $DATA \
+  --ckpt $DATA/ssm_stage2_v22.pt \
+  --patient patients_head2 --max-seq 6 \
+  --m-thr-frac 0.1 \
+  --outdir $OUT --device cuda
+
+# d(z) = 到最近「m(z) <= 0.1*max(m)」切片的票数距离
+# 只统计该片有 near 环带体素的切片；逐片算 mu / out 与 GT 的带限相关，按 d 分箱

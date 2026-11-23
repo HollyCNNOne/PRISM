@@ -1,9 +1,9 @@
 # V2.2-baseline-SSM-2
 
 > **本文档的职责（三份文档分工）**
-> - `_scratch/RESEARCH_LOG.md` = **科研日志**：只写分析、推理、判断、对论文的含义
-> - `experiments/<编号>/README.md` = **实验日志（本文）**：只写怎么做的、产物在哪、怎么复现、状态与问题
-> - `_scratch/DATA_LOG.md` = **数据日志**：只写数值、索引、口径、验证、作废记录
+> - `docs/RESEARCH_LOG.md` = **科研日志**：只写分析、推理、判断、对论文的含义
+> - `docs/experiments/<编号>/README.md` = **实验日志（本文）**：只写怎么做的、产物在哪、怎么复现、状态与问题
+> - `docs/DATA_LOG.md` = **数据日志**：只写数值、索引、口径、验证、作废记录
 
 | 项 | 值 |
 |---|---|
@@ -76,7 +76,7 @@ mask = mask · w
 | `results/tables/clinical_ab.csv` | 两臂 × 三区 × 13 项靶心指标 |
 | `results/figures/viz_exp008.png` | 三张代表片的四联对比（GT / 两臂 / 误差） |
 
-本地镜像：`_scratch/images/V2.2/arm_compare/`
+本地镜像：`results/figures/`
 
 ## 7. 复现
 

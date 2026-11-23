@@ -1,15 +1,19 @@
-# PRISM 数据文档（DATA_LOG）
+# PRISM 数据日志（V2.2 baseline 阶段）
 
-> **本文档的职责（三份文档分工）**
-> - `_scratch/RESEARCH_LOG.md` = **科研日志**：只写分析、推理、判断、对论文的含义
-> - `experiments/<编号>/README.md` = **实验日志**：只写怎么做的、产物在哪、怎么复现、状态与问题
-> - `_scratch/DATA_LOG.md` = **数据日志（本文）**：只写数值、索引、口径、验证、作废记录
-> 本文件只记「数据的事实」，不写推论。
-> **评分域铁律**：`prism/eval/domain.py::tissue_mask` = 非金属 ∩ 非回填(r=8) ∩ 非空气。
+> **三份文档的分工**
+> - `docs/RESEARCH_LOG.md` = **科研日志**：只写分析、推理、判断、对论文的含义
+> - `docs/DATA_LOG.md` = **数据日志**：只写数值、索引、口径、验证、作废记录
+> - `docs/experiments/<编号>/README.md` = **实验日志**：只写怎么做的、产物在哪、怎么复现、状态与问题
+>
+> 本仓库只收录 **V2.2 baseline 阶段**（FIND-NET-1~5 度量 + SSM-1~3 诊断）。
+> 更早的阶段记录保留在本地工作区，未纳入本仓。
+
+> **评分域铁律**：所有网络输出指标统一用 `prism/eval/domain.py::tissue_mask`
+> = 非金属 ∩ 非回填(r=8) ∩ 非空气。
 
 ---
 
-## 1. 数据契约（不可跳过）
+## 1. 数据契约
 
 ```
 Target + Mask
@@ -21,9 +25,7 @@ d_j + g
 才允许训练
 ```
 
-铁律：
-- 目录名 `training_data_astra` 是历史命名，**不代表用 ASTRA**；解析线唯一真源 = `analytic_sim/`。
-- 改 PSF / 视角后必须：清 `.regen_skimage_done` / `.regen_phys_done` → 重跑两步 → **重过三关**。
+> 目录名 `training_data_astra` 是历史命名，**不代表用 ASTRA**；解析线唯一真源 = `analytic_sim/`。
 
 ---
 
@@ -31,112 +33,53 @@ d_j + g
 
 | 项 | 值 |
 |---|---|
-| 位置 | `/root/autodl-tmp/PRISM/training_data_astra/` |
 | 规模 | **3857 片 / 28 植入体 / 7 case**（head1 4 + head2 3） |
-| 序列形态 | complete/large/medium = 完整头颅序列；**small = 独立切片池**（`single_*` + `stage1_only`） |
-| Z 范围 | 25 ~ 217 片 |
-| 视角 / PSF | **平行束 720 视角；PSF σ = 6.0（全尺寸，2026-11-21 定案）** |
-| 尺寸轴 | small / medium / large / giant（动脉瘤半径） |
-| 病例轴 | complete / large_residue / medium_residue / small_residue |
-
-每样本 7 个文件（≈7.3 MB/片）：`Target` `Baseline` `LI` `Mask` `Phys/{x_M0,d_j,g}` + `meta/*.json`。
-`tau_b`/`w_b` 不生成（0 占位，加载回退零张量）。
+| **含金属片** | **167 片（4.3%）**；其中 head1 97 / head2 70 |
+| 序列形态 | complete/large/medium = 完整头颅序列；small = 独立切片池 |
+| 视角 / PSF | 平行束 720 视角；PSF σ = 6.0（全尺寸统一） |
+| held-out | `patients_head2`（12 条序列，每 size 3 条） |
 
 ---
 
 ## 3. 验证记录
 
-| 日期 | 参数 | 关1 d_j 中位 | 关2 FIND-Net 有效 | 关3 分区 完全/部分/充分 | 结果 |
-|---|---|---|---|---|---|
-| 2026-11-21 | 720 views / PSF 6.0 | **5.79e6** | 269.0 → 78.7 HU（ratio 0.29）⏳[含回填口径，待复核] | 21.6% / 75.7% / 2.7% | ✅ 通过 |
+| 关 | 判据 | 实测 |
+|---|---|---|
+| 关1 d_j 尺度 | 中位 ≈10⁶ | **5.79e6** |
+| 关2 FIND-Net 有效性 | 有金属切片误差降到 Baseline 一半以下 | 269.0 → 78.7 HU（0.29）⏳ 含回填口径，待复核 |
+| 关3 分区覆盖 | 完全/部分/充分均有样本 | 21.6% / 75.7% / 2.7% |
 
 ---
 
-## 4. 产物总目录
+## 4. 产物索引（本仓内路径）
 
-**本地**：`_scratch/images/V2.2/`；**服务器**：`/root/autodl-tmp/PRISM/v2.2/`
+| 文件 | 类型 | 路径 |
+|---|---|---|
+| `findnet_decay.png` | 图 | `experiments/V2.2-baseline-FIND-NET-1/results/figures/findnet_decay.png` |
+| `prior_gain_clean.png` | 图 | `experiments/V2.2-baseline-FIND-NET-1/results/figures/prior_gain_clean.png` |
+| `prior_gain_scatter.png` | 图 | `experiments/V2.2-baseline-FIND-NET-1/results/figures/prior_gain_scatter.png` |
+| `prior_gain_vs_metal.png` | 图 | `experiments/V2.2-baseline-FIND-NET-1/results/figures/prior_gain_vs_metal.png` |
+| `findnet_decay.csv` | 表 | `experiments/V2.2-baseline-FIND-NET-1/results/tables/findnet_decay.csv` |
+| `err_dist_multi.png` | 图 | `experiments/V2.2-baseline-FIND-NET-2/results/figures/err_dist_multi.png` |
+| `err_dist_multi.csv` | 表 | `experiments/V2.2-baseline-FIND-NET-2/results/tables/err_dist_multi.csv` |
+| `clinical_metrics.png` | 图 | `experiments/V2.2-baseline-FIND-NET-3/results/figures/clinical_metrics.png` |
+| `near_ring_viz.png` | 图 | `experiments/V2.2-baseline-FIND-NET-3/results/figures/near_ring_viz.png` |
+| `near_ring_zoom.png` | 图 | `experiments/V2.2-baseline-FIND-NET-3/results/figures/near_ring_zoom.png` |
+| `clinical_metrics.csv` | 表 | `experiments/V2.2-baseline-FIND-NET-3/results/tables/clinical_metrics.csv` |
+| `observation_ceiling.csv` | 表 | `experiments/V2.2-baseline-FIND-NET-4/results/tables/observation_ceiling.csv` |
+| `mean_fill.png` | 图 | `experiments/V2.2-baseline-FIND-NET-5/results/figures/mean_fill.png` |
+| `mean_fill.csv` | 表 | `experiments/V2.2-baseline-FIND-NET-5/results/tables/mean_fill.csv` |
+| `mu_structure.csv` | 表 | `experiments/V2.2-baseline-SSM-1/results/tables/mu_structure.csv` |
+| `viz_exp008.png` | 图 | `experiments/V2.2-baseline-SSM-2/results/figures/viz_exp008.png` |
+| `arm_compare.csv` | 表 | `experiments/V2.2-baseline-SSM-2/results/tables/arm_compare.csv` |
+| `clinical_ab.csv` | 表 | `experiments/V2.2-baseline-SSM-2/results/tables/clinical_ab.csv` |
+| `zdistance.csv` | 表 | `experiments/V2.2-baseline-SSM-3/results/tables/zdistance.csv` |
 
-| 路径 | 内容 | 生成脚本 | 状态 |
-|---|---|---|---|
-| `sample_viz.png` | GT/Baseline/LI/\|差\|/Mask 单样本五联 | `viz_v22_sample.py` | ✅ 有效 |
-| `viz_zstrip.png` | 一个植入体 8 片：GT/Baseline/\|差\|/log d_j | `viz_v22_more.py` | ✅ 有效 |
-| `viz_four_sizes.png` | 四尺寸 × GT/Baseline/FN/\|差\|（**旧口径 FN**） | `viz_v22_more.py` | ❌ 作废 |
-| `viz_four_sizes_correct.png` | 同上，含回填、**新口径** | `viz_four_sizes_correct.py` | ✅ 有效 |
-| `viz_final_correct.png` | RAW vs 回填（机制示意） | `viz_backfill_correct.py` | ✅ 有效（示意） |
-| `viz_fanbeam.png` | 扇束 vs 平行束诊断 | `viz_fanbeam.py` | ✅ 有效（诊断） |
-| `viz_streak_sweep{,_medium,_large,_giant}.png` | PSF × 视角扫描 | `viz_streak_sweep.py` | ✅ 有效（PSF 定案依据） |
-| `metal/metal_sweep.png` `.csv` | 155 片金属量扫描 + 饱和拟合 | `v22_metal_sweep.py` | ✅ 有效（纯观测） |
-| `prior_gain/prior_gain_clean.png` | 无金属切片五联 + 误差热力图 | `v22_prior_gain.py` | ✅ 有效（新口径，数值不变） |
-| `prior_gain/prior_gain_scatter.png` | 40 片：重建 vs FIND-Net 散点 | 同上 | ✅ 有效 |
-| `prior_gain/prior_gain_vs_metal.png` | 三曲线 vs 金属量（交叉点=None） | 同上 | ✅ 有效（新口径） |
-| `info_loss/metrics_mae_ssim_psnr.csv` | 三状态指标表 | `v22_metrics_table.py` | ✅ 有效（新口径） |
-| `info_loss/error_cdf.png` | 误差分布 CDF | `v22_error_dist.py` | ✅ 有效（新口径） |
-| `fre_strat/freq_strat.png` `.csv` | 分层：金属窗口/干净区/全序列 | `freq_stratified.py` | ✅ 有效（新口径） |
-| `fre_history/history_ablation.png` `.csv` | 历史截断（k=0/5/10/20/40） | `freq_history_ablation.py` | ✅ 有效（新口径） |
-| `fre_image/fre_epoch/freq_stage2.csv` | 训练中 z 频带随 step | `freq_recorder.py`（训练内） | ⚠️ 含回填；仅下次训练可重记 |
-| `fre_image/fre_error/` | 三路频域 GT/FN/SSM | `v22_freq_error.py` | ✅ 有效（份额量，新旧一致） |
-| `mean_fill/mean_fill.png` `.csv` | 六个参照 × 三区的 MAE / HF / 相关 | `v22_mean_fill_test.py` | ✅ 有效（FIND-NET-5） |
-| `clinical/clinical_metrics.png` `.csv` | 近环四度量（带限相关/边缘/SSIM/自相关） | `v22_clinical_usability.py` | ✅ 有效（FIND-NET-3） |
-| `clinical/near_ring_viz.png` `near_ring_zoom.png` | 近环在图上长什么样（青线=环带，红线=金属核） | `viz_near_ring.py` | ✅ 有效（FIND-NET-3 配图） |
-| `ceiling/observation_ceiling.csv` | 观测端高频天花板（纯 numpy） | `v22_observation_ceiling.py` | ✅ 有效（FIND-NET-4） |
-| `arm_compare/arm_compare.csv` | exp007 多轴对比 | `compare_arms.py` | ✅ 有效 |
-| `arm_compare_exp008/` | exp008 多轴对比 | `compare_arms.py` | ⏳ 待跑 |
+> 全部产物均在 `docs/experiments/<编号>/results/` 下，与实验一一对应。
 
 ---
 
-## 5. 全部关键数值
-
-### 5.1 观测端三状态（exp009，4 尺寸 × 3 状态）⚠️ **n=1 / 尺寸**
-
-> **样本量**：每个尺寸只有 **1 张切片**（`PICKS` 硬编码）。本表与 §5.2 均为**单例示意**，
-> 不可作为"四尺寸趋势"的统计结论。有统计分量的只有 §5.3（155 片）。
-> FIND-Net 性能随信息减少的定量结论改由 `V2.2-baseline-FIND-NET-1` 承担。
-
-| size | 状态 | MAE | RMSE | PSNR | SSIM | >50HU |
-|---|---|---|---|---|---|---|
-| small | 植入前 | 66.0 | 77.9 | 31.72 | 0.743 | 0.630 |
-| small | 植入后 | 117.9 | 184.8 | 24.21 | 0.762 | 0.652 |
-| small | **FIND-Net** | **21.8** | 31.4 | **39.62** | **0.968** | **0.080** |
-| medium | 植入前 | 64.5 | 75.5 | 31.99 | 0.708 | 0.637 |
-| medium | 植入后 | 161.6 | 282.7 | 20.52 | 0.714 | 0.716 |
-| medium | **FIND-Net** | **23.7** | 32.8 | **39.22** | **0.959** | **0.095** |
-| large | 植入前 | 65.8 | 78.6 | 31.63 | 0.707 | 0.655 |
-| large | 植入后 | 245.4 | 396.1 | 17.59 | 0.686 | 0.815 |
-| large | **FIND-Net** | **56.8** | 90.7 | **30.39** | **0.866** | **0.383** |
-| giant | 植入前 | 94.0 | 138.5 | 26.71 | 0.798 | 0.620 |
-| giant | 植入后 | 273.6 | 431.7 | 16.84 | 0.705 | 0.826 |
-| giant | **FIND-Net** | **90.0** | 166.1 | **25.14** | **0.860** | **0.437** |
-
-**先验增益**（FN vs 植入前地板）：3.03× / 2.72× / 1.16× / **1.04×**（四尺寸全部为正）
-
-### 5.2 误差分布（旧版，❌ 已作废 → 见 §5.13）
-
-> **作废原因：每尺寸只有 1 张切片**（`v22_error_dist.py` 的 `PICKS` 硬编码）。
-> 下表保留仅为追溯，**不再引用**。替代版本见 §5.13（每序列代表片，每 size 3 张）。
-
-| size | 状态 | p50 | p90 | p99 | max | >400HU |
-|---|---|---|---|---|---|---|
-| small | 前 / 后 / FN | 58.6 / 77.7 / **16.1** | 128.8 / 241.8 / **45.3** | 193.8 / 782.9 / **110.1** | 263 / 1882 / 437 | 0 / 0.040 / **0** |
-| medium | 前 / 后 / FN | 58.4 / 94.4 / **18.3** | 116.9 / 334.6 / **48.9** | 191.2 / 1065.4 / **106.9** | 343 / 2960 / 549 | 0 / 0.078 / **0** |
-| large | 前 / 后 / FN | 58.3 / 150.5 / **36.7** | 122.3 / 565.8 / **125.1** | 216.3 / 1457.9 / 306.8 | 528 / 2975 / 1098 | 0 / 0.159 / 0.006 |
-| giant | 前 / 后 / FN | 59.1 / 167.3 / **40.6** | 230.3 / 642.9 / **232.3** | **491.6** / 1555.1 / 684.6 | 963 / 3379 / 1837 | **0.021** / 0.201 / 0.043 |
-
-分箱（`<50 / 50-100 / 100-200 / 200-400 / >400`）：
-- small FN：0.920 / 0.067 / 0.012 / 0.001 / 0.000
-- medium FN：0.905 / 0.082 / 0.012 / 0.001 / 0.000
-- large FN：0.617 / 0.232 / 0.115 / 0.029 / 0.006
-- giant FN：0.563 / 0.195 / 0.121 / 0.077 / 0.043
-
-### 5.3 金属量饱和曲线（exp009，N=155）✅ 纯观测，不受口径影响
-
-| 量 | $y_{max}$ | $K$（半饱和） | $R^2$ |
-|---|---|---|---|
-| ΔInfoLoss@100 | 0.494 | 20.5 当量 | 0.888 |
-| Baseline MAE | 308.2 HU | 20.2 | 0.838 |
-
-分箱中位（ΔInfoLoss@100）：0.002 / 0.122 / 0.291 / 0.366 / 0.393 / 0.422 / 0.452 / 0.450
-
-尺寸标签失效：large 金属量 0.6–431.9、giant 1.1–472.3（各跨 400 倍以上）。
+## 5. 关键数值
 
 ### 5.4 V2.2-baseline-FIND-NET-1（原 exp012）✅ 定案
 
@@ -214,68 +157,6 @@ m obs}),\ \mathrm{HP}_\sigma(\mathrm{GT})ig),\quad \mathrm{HP}_\sigma(x)=x-\mat
 | 配置 | No-GF，max-z 8，kalman，bidirectional |
 | 早停 | step 500（最佳 **37.6 HU @ step 200**） |
 | freq step199（GT/OUT） | low 0.537/0.537；mid 0.376/0.381；high **0.087/0.082** |
-
-### 5.6 三路频域（全序列口径）✅ 份额量，不受口径影响（新旧完全一致）
-
-| case | GT [低,中,高] | FIND-Net | +SSM | 高频走向 |
-|---|---|---|---|---|
-| complete | [0.461, 0.197, 0.343] | [0.591, 0.295, 0.114] | [0.635, 0.288, 0.078] | **单调掉**（0.343→0.114→0.078） |
-| large | [0.537, 0.376, 0.087] | [0.543, 0.382, 0.075] | [0.542, 0.377, 0.081] | 基本持平 |
-| medium | [0.420, 0.464, 0.117] | [0.403, 0.469, 0.129] | [0.408, 0.437, 0.155] | **反而上升**（0.117→0.129→0.155） |
-
-### 5.7 分层频域（exp010）✅ 新口径
-
-8 条 held-out 长序列平均；评分域 `tissue_mask`。
-
-| 区域 | 高频占比 GT→OUT | 面内 HF OUT/GT | $E_z$ OUT/GT |
-|---|---|---|---|
-| **金属窗口** | 0.397 → 0.167 | **0.697**（糊 30%） | **0.900**（过平滑 10%） |
-| 干净区 | 0.213 → 0.081 | 0.834 | 0.990 |
-| 全序列 | 0.218 → 0.088 | 0.811 | 0.980 |
-
-绝对量：金属窗口 面内 HF GT 16067.2 / OUT 11206.7；$E_z$ GT 18627.5 / OUT 16767.9。
-干净区 GT HF 13972.6 / OUT 11652.2；$E_z$ GT 20705.9 / OUT 20506.8。
-
-**$E_z$ 三重互证**：分层脚本 0.900 / 历史截断 0.77~0.83（large_residue）+1.05（complete）/ 单序列直跑 0.79。
-→ 平均无抖振；**大金属完整残留时 $E_z$ 逼近甚至略超 1**。
-
-### 5.8 历史截断（exp011）✅ 新口径
-
-6 条长序列，$k$ = 前向保留干净片（0/5/10/20/40）；评价窗口固定 `[z0, z1+1+12)`。
-
-| 序列 | 类别 | $E_z$ (k=0→40) | 面内 HF | MAE (HU) |
-|---|---|---|---|---|
-| sample_002184 | large_residue | 0.819 → 0.830 | 0.834 → 0.835 | 33.6 → 34.8 |
-| sample_002401 | large_residue | 0.801 → 0.801 | 0.666 → 0.669 | 47.1 → 47.0 |
-| sample_002618 | large_residue | 0.766 → 0.768 | 0.622 → 0.629 | 63.3 → 62.4 |
-| sample_002835 | large_residue | 0.809 → 0.812 | 0.700 → 0.707 | 55.1 → 54.4 |
-| sample_000732 | complete | 0.880 → 0.867 | 0.816 → 0.803 | 26.8 → 26.2 |
-| sample_000910 | complete | 1.050 → 1.051 | 0.953 → 0.951 | 46.4 → 45.7 |
-
-最大跨度：$E_z$ 1.5% / 面内 HF 1.6% / MAE 3.6%，**无单调趋势** → 双向递归对单侧历史缺失鲁棒。
-d_high（份额）在 2/6 序列上漂移 0.10~0.17 → **份额不可靠，已二次坐实**。
-
-### 5.9 机制臂多轴对比（exp007 vs baseline）❌ 判负
-
-6 条 held-out 长序列，同一评分域；`compare_arms.py --max-seq 6`。
-
-| 指标 | baseline | exp007 | 变化 |
-|---|---|---|---|
-| MAE (HU) | **36.94** | 38.26 | +3.6% |
-| RMSE (HU) | **70.05** | 71.11 | +1.5% |
-| PSNR (dB) | **32.64** | 32.53 | −0.12 |
-| SSIM | 0.9308 | **0.9375** | +0.007 |
-| p50 (HU) | **18.63** | 19.51 | +4.7% |
-| p90 (HU) | **87.75** | 89.44 | +1.9% |
-| p99 (HU) | **284.55** | 309.58 | **+8.8%** |
-| >400HU | **0.0038** | 0.0042 | +0.0004 |
-| Δhigh（高频份额差） | −0.2120 | −0.2023 | 略回升 |
-| $E_z$（OUT/GT） | **0.8636** | 0.8358 | 过平滑加重 |
-| 面内 HF（OUT/GT） | 0.7383 | 0.7414 | 持平 |
-
-训练期：baseline 最佳 37.6 @ step200；exp007 最佳 38.0 @ step200；两臂同停 step500。
-**11 项 8 差 / 2 平 / 1 微升** → 判负。
-（日志有 `Mean of empty slice` 警告，来自空选择集，未纳入均值。）
 
 ### 5.10 误差的空间定位（V2.2-baseline-FIND-NET-3）✅ 定案
 
@@ -565,49 +446,61 @@ far 区 `out`（0.803）高于 obs 与 mu 两者 ⇒ 存在非线性增益。
 **事实**：21 项靶心格子中 exp008 赢 14 / 输 4 / 平 0；
 但 **near σ=1 = 0.1042，与 baseline 0.1054 基本持平**，而该量是本实验唯一的设计目标。
 
+### 5.16 捕获率 vs 到信息片距离（V2.2-baseline-SSM-3）✅ 定案
+
+6 条 held-out 序列；仅统计含金属且 near 环带 ≥200 体素的切片（共 29 片）。
+信息片定义：$m(z)\le 0.1\cdot\max m$；$d(z)$ = 到最近信息片的票距。
+
+| d | n | μ s1 | μ s4 | μ s16 | out s1 | out s4 | out s16 |
+|---|---|---|---|---|---|---|---|
+| 1 | 12 | 0.134 | 0.297 | 0.432 | 0.141 | 0.254 | 0.329 |
+| 2 | 8 | 0.081 | 0.203 | 0.365 | 0.037 | 0.137 | 0.204 |
+| 3-4 | 8 | 0.031 | 0.158 | 0.295 | 0.013 | 0.075 | 0.100 |
+| 5-8 | 1 | — | — | — | — | — | — |
+
+**派生量**
+
+| | σ=1 | σ=16 |
+|---|---|---|
+| 每片传递系数（d=1→2） | **0.60** | 0.85 |
+| 每片传递系数（d=2→3-4，两步） | **0.62** | 0.90 |
+| 推得 Δ | **≈0.40** | ≈0.15 |
+
+**出口保留率 out/μ**
+
+| d | σ=1 |
+|---|---|
+| 1 | **1.05** |
+| 2 | **0.46** |
+| 3-4 | **0.42** |
+
+**事实**：金属跨度 K 片时，最深处细节约为 $0.6^{K/2}$：K=4 → 0.36；K=6 → 0.22；K=10 → **0.08**。
+本数据中存在 K=10 与 K=11 的序列。
+
+---
 ---
 
-## 6. 作废与版本记录
+## 6. 作废记录
 
 | 项 | 状态 |
 |---|---|
-| 扇束（ASTRA DD2FanProj）Baseline/LI/d_j/g | ❌ 作废（2026-11-20），代码已删 |
-| PSF small 1.5 / medium 2.0 / large 4.5 | ❌ 作废（2026-11-21），统一 6.0 |
-| 单切片 median 当 d_ref 的信息缺失数据 | ❌ 作废（分区退化） |
-| small 作短序列生成的数据 | ❌ 已修正为独立切片池 |
-| **含 8px 回填区的网络输出指标**（三状态 FN 列、交叉点 270、$E_z$=1.25、旧 error_cdf、`viz_four_sizes.png`） | ❌ 作废（2026-11-21），统一改用 `tissue_mask` |
-
-**回填污染的量级**（修正实证）：仅 8px 一环即可 —— large FN MAE 97.0→**56.8**、p99 2939→**305**、PSNR 18.6→**30.4**；交叉点从「≈270」变为「不存在」；分层 $E_z$ 1.250→**0.900**（「抖振」结论作废）、面内 HF 0.761→**0.697**。
-
-**口径 bug 的指纹**（可用来快速判定某张表是否中招）：
-- **z 频带「占比」不受影响**（逐柱整列计算，不经 mask）——新旧两次完全相同（0.397→0.167）
-- **绝对量受影响**（面内 HF、$E_z$、MAE 都在 mask 内求和）——旧版整体差 2.3 倍
-- 若某表里「占比与实际能量差 2 倍以上却占比一模一样」，就是 mask 错了
-
----
+| 含 8px 回填区的网络输出指标（三状态 FN 列、交叉点、旧 error_cdf） | ❌ 作废，统一改用 `tissue_mask` |
+| 金属窗口 $E_z$=1.25「片间抖振」 | ❌ 脚本坏版本；实际 0.900（过平滑） |
+| 「FIND-Net 在信息缺失处填充均值」 | ❌ 否证：比均值填充还差 5.3×（见 FIND-NET-5） |
+| 「先验增益从不失效」 | ⚠️ 修正为 **94.2%（146/155）**（见 FIND-NET-1） |
+| 「历史充分性是 what 质量的先决条件」 | ❌ 撤回（exp011 证伪） |
 
 ## 7. 待补
 
 | 项 | 说明 |
 |---|---|
-| 关2 三关验证 | 需按新口径复核 ratio |
-| complete-only 分层 | exp010 为混合类别；exp011 已按类别单列（$E_z$ 0.87 vs 1.05） |
-| Baseline 列（分层） | exp010 只算 GT vs OUT，未纳入 Baseline/FIND-Net 单列；cheap，可补 |
-| `freq_stage2.csv` | 仅在下次训练时可重记 |
-| exp008 机制臂 | 🔄 跑中（服务器端链条 chain2.sh 自动接力） |
-| 近环外径敏感性 | 30px 为经验值，未扫描 20/40/50 |
-| 条件互信息上界 | FIND-NET-4 给的是**线性**天花板；绝对上界（条件互信息）未算 |
-| streak 定义 | `\|LI\|>p90` 抓到骨缘而非条纹；待改为「沿射线方向连通条纹」 |
-
----
+| FIND-NET-1 的 155 片含 91 片训练病人 | 需限定 held-out 重算 |
+| 空气区（`gt < −500`）完全未评估 | 一整类"填塞窦腔"误差不可见 |
+| `streak` 区定义失效（抓到骨缘） | 需按"沿射线方向连通条纹"重定义 |
+| 残留条纹的**形状** | 需方向敏感度量 |
+| 条件互信息上界 | 现为线性天花板 |
 
 ## 8. 更新日志
 
-- **2026-11-21**：建立全量登记册；录入 exp009/010/011/012 与 stage2 全部关键数值；标注 Phase2 待重算项；
-  记录「回填区污染」的量级与作废范围。
-- **2026-11-21（Phase2 回填）**：5.6 三路频域确认不受口径影响（份额量，新旧一致）；
-  5.7 分层、5.8 历史截断全部换新口径；**$E_z$「抖振 1.25」作废 → 0.900（过平滑）**；
-  新增「口径 bug 的指纹」（占比不变 + 绝对量差 2.3 倍）；新增 exp011 文档。
-- **2026-11-22**：新增 §5.9（exp007 判负）、§5.10（FIND-NET-3 近环）、§5.11（FIND-NET-5 2D 极限与 z 上界）、
-  §5.12（FIND-NET-4 观测天花板）。**「FIND-Net 填充均值」假设作废** → 实际是「留下伪影、HF 能量 99×」。
-  新增产物索引 5 行、待补 3 条。
+- **2026-11-23**：本仓首次收录 V2.2 baseline 阶段（FIND-NET-1~5 + SSM-1~3）；
+  全部路径改为仓内相对路径；仅保留本阶段数值。

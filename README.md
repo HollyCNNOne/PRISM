@@ -67,3 +67,18 @@ d_j（数据充分度）与 g（信任门控）是 Stage 2 SSM 观测精度 `d_j
 
 本仓只含**解析管线**。全物理（CatSim/XCIST：`batch_simulate.py` / `generate_coil_3d_mask.py`
 / `generate_training_data.py`）在另一条线，**不在此仓**，请勿在此混入或修改全物理代码。
+
+---
+
+## docs/ —— V2.2 baseline 分析（作品集主线）
+
+把「金属伪影去除」抽象为「**结构化测量缺失下的可恢复性分析**」，
+并给出 8 个实验的完整记录（数学抽象 / 度量 / 诊断 / 策略否定 / 脚本 / 数据 / 图）。
+
+- 入口：[`docs/README.md`](docs/README.md)
+- 科研日志：[`docs/RESEARCH_LOG.md`](docs/RESEARCH_LOG.md)
+- 数据日志：[`docs/DATA_LOG.md`](docs/DATA_LOG.md)
+- 实验索引：[`docs/EXPERIMENTS_INDEX.md`](docs/EXPERIMENTS_INDEX.md)
+
+核心数字（近环，σ=1）：主通道相关 **0.054**（99.7% 不可解释）、
+z 通道 **0.280**、现管线 **0.105**；递归的细节传递为 **每片 ×0.60**。

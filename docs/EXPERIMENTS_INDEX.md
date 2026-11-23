@@ -1,72 +1,56 @@
-# 实验索引（Experiments Index）
+# 实验索引（V2.2 baseline 阶段）
 
-> 每个实验一个文件夹，README 按 `_template/README.md` 的 7 节填写。
-> 数据层标签三选一：**解析仿真 / 全物理 CatSim / 真实 KARL**。
+> **三份文档的分工**
+> - `docs/RESEARCH_LOG.md` = **科研日志**：只写分析、推理、判断、对论文的含义
+> - `docs/DATA_LOG.md` = **数据日志**：只写数值、索引、口径、验证、作废记录
+> - `docs/experiments/<编号>/README.md` = **实验日志**：只写怎么做的、产物在哪、怎么复现、状态与问题
+>
+> 本仓库只收录 **V2.2 baseline 阶段**（FIND-NET-1~5 度量 + SSM-1~3 诊断）。
+> 更早的阶段记录保留在本地工作区，未纳入本仓。
 
-| ID | 标题 | 数据层 | 状态 | 一句话结论 |
-|---|---|---|---|---|
-| [exp001](exp001_ssm_scalar_lazy_mu/README.md) | SSM 标量卡尔曼端到端跑通 + 懒 μ 三修复 | 全物理 CatSim | ✅ 定案 | μ 达群体先验（corr +0.816，std 511），三个梯度泄漏缺一不可 |
-| [exp002](exp002_c_gated_vs_kalman/README.md) | 门控 vs 卡尔曼（H2 ★关键） | 全物理 CatSim | ✅ 定案 | 部分阴影区 kalman 333.6 < gated 466.7（H2 成立）；完全阴影区门控反胜（互补非全序） |
-| [exp003](exp003_size_scaling_contamination/README.md) | B8 跨线圈尺寸分层 + 完全阴影 carry 污染定量 | 全物理 CatSim | ✅ 定案 | giant 增益回落=carry 污染随尺寸放大(+29→+447 HU)非先验变差；纯先验地板 giant 反而最好(245.8 HU, 8.2×) |
-| [exp004](exp004_recursion_ablation/README.md) | 递归隔离对照（核心创新点命门） | 全物理 CatSim | ✅ 定案 | 非递归重训练完全阴影 1678(1.17×) vs 递归 616(3.2×)；递归贡献 1062 HU 决定性，核心创新点成立 |
-| [exp005](exp005_delta_diagnosis/README.md) | 读学到的 Δ_z 分布（低频偏置是学出来的？） | 解析仿真 | ⏳ 待做（诊断） | 结构上 Δ=0.9 已近平坦（1.22×），故「低通」若成立必是 MSE 把 Δ 压向平滑 |
-| [exp006](exp006_second_order_bandpass/README.md) | 二阶转移（带零点的高通/带通） | 解析仿真 | ⏳ 待做（备选） | 真高通需零点（前馈 tap），负极点只会振荡；007/008 不够时再上 |
-| [exp007](exp007_content_adaptive_pole/README.md) | 内容自适应极点（Δ_z 读沿 z 结构） | 解析仿真 | ❌ **判负** | 多轴 11 项：**8 差 / 2 平 / 1 微升**（MAE 36.9→38.3，p99 +8.8%，$E_z$ 0.864→0.836 过平滑加重；仅 SSIM +0.007）→ 瓶颈不在 Δ 的表达能力 |
-| [exp009](exp009_obs_info_loss_metrics/README.md) | **[定案]** 观测端信息缺失度 + 与 MAE/SSIM/PSNR 的关系 | 解析仿真 | ✅ **定案** | 「植入前」=成像地板(66HU)非真值；**N=155 切片扫描：有效信息由单切片金属量决定，饱和 ΔInfoLoss@100→0.49、K≈20 当量；large/giant 无差异(0.452 vs 0.450)**；InfoLoss=误差尾部比例、MAE=均值、SSIM=结构 |
-| [exp010](exp010_freq_stratified/README.md) | 分层频域：金属窗口 vs 干净区 | 解析仿真 | ✅ **定案** | **全序列口径是稀释假象**（干净区 $E_z$=0.990 恒等）；金属窗口**面内糊 30%（HF 0.697）+ z 过平滑 10%（$E_z$ 0.900）**；**「抖振 1.25」已作废**（口径 bug）；占比把损失放大 6 倍，必须配绝对量 |
-| [exp011](exp011_history_ablation/README.md) | 前向历史截断（双向递归是否依赖历史） | 解析仿真 | ✅ **定案** | k=0（进金属前零干净片）与 k=40 结果差 ≤1.6%（$E_z$/HF）、MAE ≤3.6% 且无方向 → **后向递归补足历史，不依赖扫描方向**；份额量 d_high 反而漂移 0.17（占比不可靠的二次实证）；$E_z$ 逐序列 0.77~1.05（大金属完整残留时逼近 1） |
-| [V2.2-baseline-FIND-NET-1](V2.2-baseline-FIND-NET-1/README.md)（原 exp012） | FIND-Net 去掉的是哪两类伪影 + 性能由什么决定 | 解析仿真 | ✅ **定案**（含 7 条已知问题） | ①**去掉的不只是金属伪影，还有重建算法伪影**（无金属 40 片 82.0→49.9，1.64×）；②性能由**单切片可观测信息 $I_\sigma$** 决定，FN/地板 0.333→0.785；③**铂丝线圈是信息减少谱系的极端端**；④**94.2%（146/155）优于干净重建**，9 片失败归因于「信息耗尽 (2)」与「地板本身异常高 (7)」，非模型问题 |
-| [FIND-NET-5](V2.2-baseline-FIND-NET-5/README.md) | 2D 先验的极限 + z 信息上界 | 解析仿真 | ✅ **定案** | **「填充均值」不成立**：near FIND-Net 185.1 vs μ_local 34.7（**差 5.3×**），HF 36,418 vs 21.9 → 不是抹平是加伪影；SSM 把 HF 压到 2,946≈GT 的 1.03× 但 corr 仅 0.213→0.282（zprior 0.701）→ **能量对、内容假**；z 邻居 MAE 23.1 = FIND-Net 的 1/8 |
-| [V2.2-baseline-FIND-NET-3](V2.2-baseline-FIND-NET-3/README.md)（原 exp014） | **失败在哪里**：误差的空间定位 | 解析仿真 | ✅ **定案** | 误差被精确定位在**金属外 8–30px 环带**：带限相关 **0.10**（far 0.80 / streak 0.84）、边缘 **3.48×**、方向余弦 **0.29**、SSIM 亮度 **0.44**；**失败位置 = 观测被摧毁的位置**（该区观测相关 0.054、99× 假能量）。near 仅占组织体素 0.18% |
-| [FIND-NET-4](V2.2-baseline-FIND-NET-4/README.md) | **观测端高频天花板**（纯 numpy，不涉模型） | 解析仿真 | ✅ **定案** | 近环观测高频与真值相关仅 **0.054**，却携带 **99.34×** 能量 → 纯伪影；**与训练量/容量无关**；streak 0.824 / far 0.427–0.941 正常 → 问题局域化；z 上一片 0.280 = 观测的 5.2× |
-| [V2.2-baseline-FIND-NET-2](V2.2-baseline-FIND-NET-2/README.md)（原 exp009 §5.4） | **FIND-Net 的误差结构**：准，但会不会出大错 | 解析仿真 | ✅ **定案** | 每序列取金属量最大的代表片（12 条 held-out，每 size 3 张）。**误差是尖峰重尾不是弥散模糊**：p50 比 0.34/0.42/0.65/0.69 全程更好，但 **p99 在 large/giant 反超（1.17 / 1.49）**；>400HU 反超地板（2.47% vs 1.94%，3.09% vs 1.60%）→ **弥散尾巴来自物理，尖峰尾巴来自决策** |
 
-## FIND-Net 基线分析（V2.2-baseline-FIND-NET 系列）
+---
 
-| 编号 | 回答的问题 | 目录 | 原编号 |
-|---|---|---|---|
-| **-1** | 误差**多大**（FIND-Net 去掉哪两类伪影、性能由什么决定） | `V2.2-baseline-FIND-NET-1/` | exp012_prior_gain |
-| **-2** | 误差**长什么样**（分布形状） | `V2.2-baseline-FIND-NET-2/` | exp009 §5.4 |
-| **-3** | 误差**在哪里**（空间定位） | `V2.2-baseline-FIND-NET-3/` | exp014_near_ring_region |
-| **-4** | 失败**为什么**（观测端天花板，不跑网络） | `V2.2-baseline-FIND-NET-4/` | exp015_observation_ceiling |
-| **-5** | "填充均值"假设的检验 | `V2.2-baseline-FIND-NET-5/` | exp013_mean_fill |
-
-> **这一系列共同推出的唯一结论**：2D 这条路已经走到尽头，剩下的信息只在 **z 轴**。
-> 论证见 `_scratch/RESEARCH_LOG.md` →「为什么一定需要 z 轴」。
-> 加 SSM 之后出现的问题属于**机制研究**，不在本系列范围。
-
-## SSM 机制分析（V2.2-baseline-SSM 系列）
-
-| 编号 | 回答的问题 | 目录 | 状态 |
-|---|---|---|---|
-| **-1** | 瓶颈在**递归**还是**FIND-Net 出口** | `V2.2-baseline-SSM-1/` | ✅ 定案 |
-| **-2** | **频率加权**能否让输出保留更多结构 | `V2.2-baseline-SSM-2/` | ✅ 定案 |
-
-> **结论**：近环的细结构（σ=1）瓶颈在**递归**——μ 只拿到 z 信息的 **40%**，出口只再丢 **7%**。
-> 粗结构（σ=16）瓶颈在**出口**——μ 拿到 60%，出口丢掉其中 33%。
-> **所以"改损失函数"在 σ=1 上最多拿回 7%，下一刀必须砍在递归上。**
-> **-2（频率加权）**：21 项靶心赢 14，但 **near σ=1 0.1054→0.1042 没动**；MAE 变差 2.0%。
-> 结合 -1 ⇒ **瓶颈在递归、不在出口；"改目标函数"这条路结案。**
-> 分析见 `_scratch/RESEARCH_LOG.md` → V2.2-baseline-SSM-1 / -2。
-
-## 待回填（历史线）
-
-- **SQS+GGMRF 线**（exp01–12，解析/全物理）：见记忆 `sqs-ggmrf-results-log`，逐步迁移到本目录。
-- **FIND-Net / d-MAR 线**：见记忆 `findnet-baseline` / `dmar-baseline`。
-
-## 目录约定（每个 expNNN 统一）
+## 目录
 
 ```
-expNNN_<slug>/
-├── README.md          7 节规范（0 目的 + 1 环境 … 7 源码）
-├── src/               源码快照（改了哪些文件就放哪些）
-├── config/args.txt    复现命令快照
+docs/experiments/<编号>/
+├── README.md          9 节：对象/环境/配置/数据/方法/产物/复现/状态/变更
+├── src/               脚本快照
+├── config/args.txt    复现命令
 └── results/
     ├── tables/        原始 CSV（权威数值）
-    └── figures/       PNG（与 _scratch/images/V2.2/ 保持同步）
+    └── figures/       PNG
 ```
 
-- 目录：`expNNN_<slug>`，NNN 三位零填充顺序递增。
-- 数据层标签**必须**写在 README §3 与 INDEX 表里，禁止只写「仿真」这种模糊词。
-- **图文分工**：论文/汇报用的图总览在 `_scratch/images/V2.2/`；`results/figures/` 是各实验的同名副本，两边必须同步。
-- **评分域铁律**：凡涉及网络输出的指标，一律 `prism/eval/domain.py::tissue_mask`（非金属 ∩ 非回填 r=8 ∩ 非空气）。
+## 一、原空间可观测性的量化（FIND-NET-1 ~ -5）
+
+| 编号 | 回答 | 一句话结论 |
+|---|---|---|
+| [V2.2-baseline-FIND-NET-1](experiments/V2.2-baseline-FIND-NET-1/README.md) | 误差**多大**：去掉哪两类伪影 + 性能由什么决定 | 无金属 40 片 82.0→49.9（1.64×）；FN/地板 0.333→0.785；**94.2% 优于干净重建** |
+| [V2.2-baseline-FIND-NET-2](experiments/V2.2-baseline-FIND-NET-2/README.md) | 误差**长什么样**：分布形状 | **尖峰重尾**：p50 比 0.34~0.69 全程更好，**p99 在 large/giant 反超 1.17 / 1.49** |
+| [V2.2-baseline-FIND-NET-3](experiments/V2.2-baseline-FIND-NET-3/README.md) | 误差**在哪里**：空间定位 | **金属外 8–30px 环带**：带限相关 0.100、边缘 3.48×、方向余弦 0.29、SSIM l 0.44 |
+| [V2.2-baseline-FIND-NET-4](experiments/V2.2-baseline-FIND-NET-4/README.md) | 失败**为什么**：观测端天花板（不跑网络） | 观测高频相关 **0.054**、携带 **99.34×** 能量；streak 0.824 / far 0.427–0.941 |
+| [V2.2-baseline-FIND-NET-5](experiments/V2.2-baseline-FIND-NET-5/README.md) | 「填充均值」假设的检验 | **否证**：FIND-Net 185.1 vs μ_local 34.7（差 5.3×）——是加伪影，不是抹平 |
+
+## 二、SSM 机制诊断（SSM-1 ~ -3）
+
+| 编号 | 回答 | 一句话结论 |
+|---|---|---|
+| [V2.2-baseline-SSM-1](experiments/V2.2-baseline-SSM-1/README.md) | 瓶颈在**递归**还是**出口** | μ 捕获 z 的 **40%**，出口只再丢 7% → **瓶颈在递归** |
+| [V2.2-baseline-SSM-2](experiments/V2.2-baseline-SSM-2/README.md) | **频率加权**能否把结构找回来 | 赢 14/21 项，**唯独 near σ=1 未动**（0.1054→0.1042）；MAE 变差 2.0% |
+| [V2.2-baseline-SSM-3](experiments/V2.2-baseline-SSM-3/README.md) | 细节传递是否随**到信息片距离**衰减 | **每片 ×0.60（Δ≈0.40）**；σ=16 每片 ×0.85 → 金属跨 10 片时细节仅剩 8% |
+
+---
+
+## 一条线读下来
+
+1. **2D 在近环没有信息**（FIND-NET-4：相关 0.054、99.34× 假能量）
+2. **失败是「假」不是「糊」**（FIND-NET-3），**且集中在贴金属的 8–30px**
+3. **不是"填充均值"**（FIND-NET-5：比均值填充还差 5.3×）
+4. **唯一剩下的通道是 z**（0.280，但只有 z-稳定结构）
+5. **现有递归只取到 40%**（SSM-1），**因为传递每片 ×0.6**（SSM-3）
+6. **改损失函数无效**（SSM-2：赢 14/21 项，唯独输掉靶心）
+
+> ⇒ 下一刀必须砍在**递归的状态传递**，不是损失函数。
+
