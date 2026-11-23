@@ -6,6 +6,9 @@
                  （扇束数据上会到 +50 以上）。
 关 3  分区比例：r=d_j/d_ref，完全(r<1/9)/部分/充分(r>9) 应大致复现 21.6 / 74.5 / 3.9%。
 """
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))))
+from prism.eval.domain import tissue_mask
 import argparse, glob, json, os, sys
 import numpy as np
 import torch
@@ -69,7 +72,7 @@ def main():
         bl = read_raw(os.path.join(args.data_dir, "train", "Baseline", f"{best}.raw"))
         li = read_raw(os.path.join(args.data_dir, "train", "LI", f"{best}.raw"))
         mk = read_raw(os.path.join(args.data_dir, "train", "Mask", f"{best}.raw"))
-        tis = (mk <= 1e-3) & (gt > -500.0)
+        tis = tissue_mask(mk, gt, r=8)
         t = lambda a: torch.from_numpy(a[None, None].astype(np.float32)).to(args.device)
         with torch.no_grad():
             out = net.reconstruct(t(bl), t(li), t(mk))[0, 0].cpu().numpy()
@@ -92,7 +95,7 @@ def main():
             continue
         dj = np.load(f).astype(np.float32)[0, ::4, ::4]
         mk = read_raw(mp)[::4, ::4]
-        vals.append(dj[mk <= 1e-3])
+        vals.append(dj[tissue_mask(mk, gt, r=8)])
     t = np.concatenate(vals).astype(np.float64)
     r = t / d_med
     f_complete = float((r < 1 / 9).mean())

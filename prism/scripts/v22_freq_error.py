@@ -160,7 +160,9 @@ def main():
     ck = torch.load(args.stage2, map_location=device, weights_only=False)
     cfg = ck["config"]
     m_net = MNetwork(nb=cfg.get("nb", 1), channels=cfg.get("channels", 32),
-                     use_velocity=cfg.get("use_velocity", True)).to(device)
+                     use_velocity=cfg.get("use_velocity", True),
+                     shadow_r0=cfg.get("shadow_r0", 1.0 / 9.0),
+                     use_z_curvature=cfg.get("use_z_curvature", False)).to(device)
     find_net = FN(FNA()).to(device)
     m_net.load_state_dict(ck["model"])
     find_net.load_state_dict(ck["find_net"])

@@ -1,0 +1,20 @@
+# V2.2-baseline-SSM-2 复现命令（服务器，conda env pzneuro）
+
+# 1) 训练 + 多轴对比（mech_exp2.sh 内已串好）
+bash prism_framework/prism/scripts/mech_exp2.sh
+
+# 其中训练命令：
+# python PRISM/scripts/stage2_alternating.py \
+#   --data-dir /root/autodl-tmp/PRISM/training_data_astra \
+#   --steps 800 --batch-size-a 1 --batch-size-b 2 --max-z 8 \
+#   --eval-every 100 --stop-patience 3 --min-improvement 0.01 \
+#   --holdout-patient patients_head2 \
+#   --resume-findnet .../findnet_stage1_v2.1.pt \
+#   --out .../ssm_exp008_zfreq.pt --zfreq-gain 1.0 --device cuda
+
+# 2) 靶心判据（两臂四度量）
+# python prism/scripts/v22_clinical_ab.py --ckpts baseline.pt,exp008.pt \
+#   --names baseline,exp008_zfreq --max-seq 6 --outdir ... --device cuda
+
+# 3) 效果图
+# python prism/scripts/viz_arm_compare.py --ckpts ... --names ... --n-slices 3 --out ...

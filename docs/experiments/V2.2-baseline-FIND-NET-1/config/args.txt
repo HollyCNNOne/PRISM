@@ -1,0 +1,21 @@
+# V2.2-baseline-FIND-NET-1 复现命令（服务器）
+
+DATA=/root/autodl-tmp/PRISM/training_data_astra
+V22=/root/autodl-tmp/PRISM/v2.2
+AGIR=/root/miniconda3/envs/agir/bin/python      # 需要 skimage（pzneuro 没有）
+
+# --- P1：无金属切片（40 张，mask.max<=1e-3）---
+$AGIR -u prism_framework/prism/scripts/v22_prior_gain.py \
+  --ckpt $DATA/findnet_stage1_v2.1.pt --patient patients_head2 --n-clean 40 \
+  --outdir $V22/prior_gain --device cpu
+
+# --- P2 第一步：155 片三状态扫描（统一域 tissue_mask）---
+$AGIR -u prism_framework/prism/scripts/v22_metal_sweep_tm.py \
+  --data-dir $DATA --outdir $V22/metal_tm --nproc 8
+
+# --- P2 第二步：三条曲线 + FIND-Net（统一域）---
+$AGIR -u prism_framework/prism/scripts/v22_findnet_info_decay.py \
+  --data-dir $DATA --sweep $V22/metal_tm/metal_sweep_tm.csv \
+  --outdir $V22/findnet_decay --device cpu
+
+# 注意：155 片含 91 片 patients_head1（训练病人）→ in-sample，见 README §8-T1

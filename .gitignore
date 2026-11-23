@@ -12,3 +12,6 @@ runs/
 
 # FIND-Net 字典核是模型初始化资产（非数据），需入库；其余 .npy 仍忽略
 !prism/models/init_kernel.npy
+
+# 文档与实验图（作品集需要，覆盖上面的 *.png 忽略）
+!docs/**/*.png

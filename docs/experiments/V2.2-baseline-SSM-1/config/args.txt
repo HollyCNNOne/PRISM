@@ -1,0 +1,13 @@
+# V2.2-baseline-SSM-1 复现命令（服务器，conda env pzneuro）
+DATA=/root/autodl-tmp/PRISM/training_data_astra
+OUT=/root/autodl-tmp/PRISM/v2.2/mu_structure
+
+python prism_framework/prism/scripts/v22_mu_structure.py \
+  --data-dir $DATA \
+  --ckpt $DATA/ssm_stage2_v22.pt \
+  --patient patients_head2 --max-seq 6 \
+  --outdir $OUT --device cuda
+
+# 取出 res.fused 里的 mu（融合先验），与 GT 比带限相关
+# 区域：near = dilate(mask,8..30) 环带；streak = |LI|>p90 且非 near；far = 其余
+# 对照：out（最终输出）/ obs（Baseline）/ zprior（GT 上一片）

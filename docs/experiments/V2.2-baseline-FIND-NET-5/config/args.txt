@@ -1,0 +1,13 @@
+# exp013 复现命令（服务器，conda env pzneuro）
+DATA=/root/autodl-tmp/PRISM/training_data_astra
+OUT=/root/autodl-tmp/PRISM/v2.2/mean_fill
+
+python prism_framework/prism/scripts/v22_mean_fill_test.py \
+  --data-dir $DATA \
+  --ckpt $DATA/ssm_stage2_v22.pt \
+  --patient patients_head2 --max-seq 6 \
+  --outdir $OUT --device cuda
+
+# 区域：near = dilate(mask,8..30) 环带；streak = |LI|>p90 且非 near；far = 其余组织
+# 参照：baseline / mu_local(σ=8) / findnet(冷启动纯2D) / ssm / zprior(GT上一片) / _blur_obs(σ=4) / _gt_hf(GT自身)
+# 冒烟建议：--max-seq 1 先跑通（约 10 分钟），再跑全量

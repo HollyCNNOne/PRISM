@@ -1,0 +1,11 @@
+# V2.2-baseline-FIND-NET-2 复现命令（服务器，conda env agir；CPU 即可）
+DATA=/root/autodl-tmp/PRISM/training_data_astra
+OUT=/root/autodl-tmp/PRISM/v2.2/err_dist_multi
+
+OMP_NUM_THREADS=4 /root/miniconda3/envs/agir/bin/python -u \
+  prism_framework/prism/scripts/v22_error_dist_multi.py \
+  --data-dir $DATA --patient patients_head2 --outdir $OUT --device cpu
+
+# 代表片取法：每条序列取「金属量最大」的切片（线圈横截面沿 z 是 小→标称→小）
+# held-out patients_head2 = 12 条序列 → 每 size 3 张代表片
+# 三状态：before = 零金属同管线 FBP；after = Baseline；FN = FIND-Net + 回填

@@ -97,5 +97,5 @@ class FreqRecorder:
         with open(self.out_csv, "w") as f:
             f.write("epoch,pillar,band,gt,out,err\n")
             for r in self.rows:
-                f.write(f"{r[epoch]},{r[pillar]},{r[band]},{r[gt]:.6f},{r[out]:.6f},{r[err]:.6f}\n")
+                f.write(f"{r['epoch']},{r['pillar']},{r['band']},{r['gt']:.6f},{r['out']:.6f},{r['err']:.6f}\n")
         return self.out_csv

@@ -1,0 +1,10 @@
+# exp015 复现命令（服务器，纯 numpy，不需要 GPU / torch）
+DATA=/root/autodl-tmp/PRISM/training_data_astra
+OUT=/root/autodl-tmp/PRISM/v2.2/ceiling
+
+python prism_framework/prism/scripts/v22_observation_ceiling.py \
+  --data-dir $DATA --patient patients_head2 --max-seq 6 --outdir $OUT
+
+# 计算：corr(HP_σ(src), HP_σ(GT))，src ∈ {baseline, blur4(baseline), zprior}
+#       σ = 1,2,4,8,16；另出各区的 GT / Baseline 面内高频能量绝对量级
+# 语义：该相关 = 最优线性估计器（含 Wiener）对 GT 高频的解释力，即「线性天花板」
