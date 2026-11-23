@@ -1,9 +1,9 @@
 # PRISM 数据日志（V2.2 baseline 阶段）
 
 > **三份文档的分工**
-> - `docs/RESEARCH_LOG.md` = **科研日志**：只写分析、推理、判断、对论文的含义
-> - `docs/DATA_LOG.md` = **数据日志**：只写数值、索引、口径、验证、作废记录
-> - `docs/experiments/<编号>/README.md` = **实验日志**：只写怎么做的、产物在哪、怎么复现、状态与问题
+> - `RESEARCH_LOG.md` = **科研日志**：只写分析、推理、判断、对论文的含义
+> - `DATA_LOG.md` = **数据日志**：只写数值、索引、口径、验证、作废记录
+> - `experiments/<编号>/README.md` = **实验日志**：只写怎么做的、产物在哪、怎么复现、状态与问题
 >
 > 本仓库只收录 **V2.2 baseline 阶段**（FIND-NET-1~5 度量 + SSM-1~3 诊断）。
 > 更早的阶段记录保留在本地工作区，未纳入本仓。
@@ -75,7 +75,7 @@ d_j + g
 | `clinical_ab.csv` | 表 | `experiments/V2.2-baseline-SSM-2/results/tables/clinical_ab.csv` |
 | `zdistance.csv` | 表 | `experiments/V2.2-baseline-SSM-3/results/tables/zdistance.csv` |
 
-> 全部产物均在 `docs/experiments/<编号>/results/` 下，与实验一一对应。
+> 全部产物均在 `experiments/<编号>/results/` 下，与实验一一对应。
 
 ---
 
