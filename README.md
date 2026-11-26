@@ -1,115 +1,126 @@
-# PRISM —— 物理引导的递归推理金属伪影去除
+# 可恢复性分析（Recoverability Analysis）
 
-颅内铂钨（Pt-W）弹簧圈栓塞随访 CT 的金属伪影去除（MAR）。
-
-本仓当前只含**解析仿真线路 `analytic_sim/`**：用 skimage 平行束（radon/iradon）自包含地
-生成成对 MAR 数据（Baseline / LI / d_j / g），是 PRISM 递归状态空间模型（SSM）训练侧
-「解析域」的唯一数据来源。全物理（CatSim/XCIST）线路在另一条线，不在此仓。
+> **一个可迁移的研究框架：在动手解决一个逆问题之前，先量化「能不能、能多少、为什么不能更多」。**
+>
+> CT 金属伪影去除（PRISM）是它的**第一个完整案例**——不是它的边界。
 
 ---
 
-## analytic_sim/ —— 解析仿真线路（V4 定案）
+## 这个框架回答什么问题
 
-### 物理管线（`parallel_beam.py` 单一真源）
+当某个观测通道被**结构化地摧毁**（部分测量失效）时，一个自然的序列：
 
-```
-L_tissue = radon((1-mask)·hu2mu(clean))·PIXEL_MM   组织线积分
-L_metal  = radon(mask·METAL_MU)·PIXEL_MM           金属线积分（μ=7.02 mm⁻¹ = 350000 HU）
-L_tissue ← L_tissue·(1 − β_bh·L_tissue)            束硬化杯突（仅组织）
-L = L_tissue + L_metal
-I = I0·exp(−L)
-I_noisy = poisson(I) + N(0, σ_e)                   光子 + 电子噪声地板
-I_noisy = max(I_noisy, 0.5)
-L_noisy = −log(I_noisy/I0)
-L_noisy ← L_noisy + N(0, σ_starve)·1{L > L_starve} 光子饥饿阴影区 L 域噪声
-L_noisy ← gaussian_filter1d(L_noisy, σ=PSF[size])  尺寸相关角度轴 PSF 模糊
-```
+1. **信息丢在哪了** —— 测量算子的零空间有多大
+2. **还有别的通道吗** —— 另一个坐标/模态/时间点的观测
+3. **最多能恢复多少** —— 可恢复性的上界
+4. **该不该做、做到哪算到头** —— 重建与生成的边界
 
-| 常量 | 值 | 说明 |
-| --- | --- | --- |
-| PSF_BY_SIZE | small 1.5 / medium 2.0 / large 4.5 / giant 6.0 | 角度轴（axis=1）高斯模糊，最接近临床「脏、糊」星芒 |
-| σ_e | 20 | 电子噪声地板（counts），定阴影暗度 |
-| β_bh | 1.5e-2 | 束硬化系数（仅组织）→ 杯突 |
-| σ_starve | 3.0 | 光子饥饿区（L>6）L 域噪声 → 斑驳暗带 |
-| I0 | 1e5 | 入射光子数 |
-| METAL_MU | 7.02 mm⁻¹ | Pt-W 金属衰减 = 350000 HU |
-
-### 文件
-
-| 文件 | 职责 |
-| --- | --- |
-| `parallel_beam.py` | 单一物理真源 `simulate_sino(clean, mask, cat, seed)`。同 seed、同 rng 顺序，保证 Baseline/LI/d_j/g 共享同一噪声实现 |
-| `regen_skimage.py` | 重生成 `train/Baseline` + `train/LI`（线性插值 MAR + shepp-logan FBP + 金属回填） |
-| `regen_phys.py` | 重生成 `train/Phys/{d_j,g}`：`d_j = AᵀW(A·1)`，`w = I0·exp(−L_noisy)`，`g = 1/(1+(d_j/d_ref)³)` |
-| `render_analytic_mar.py` | 探针：4 尺寸 Target/LI/Baseline 网格渲染 |
-| `render_z_continuity.py` | 探针：单序列 z 轴连续渲染（验证 SSM 递归先验的 z 连续性） |
-
-### 用法（服务器 agir env）
-
-```bash
-/root/miniconda3/envs/agir/bin/python -u regen_skimage.py --nproc 16
-/root/miniconda3/envs/agir/bin/python -u regen_phys.py --nproc 16
-```
-
-输入 `train/Target/{id}.raw`（干净 HU）+ `train/Mask/{id}.raw`（金属体积分数），
-覆盖输出 `train/Baseline`、`train/LI`、`train/Phys/{id}_{d_j,g}.npy`。
-随机种子 = `int(sample_id 后缀)`，nproc 顺序无关（确定性）。
-
-### 为什么 d_j/g 用平行束重生成
-
-d_j（数据充分度）与 g（信任门控）是 Stage 2 SSM 观测精度 `d_j/d_ref` 与阴影门
-`s=1{r≥r0}` 的物理量，必须与 Baseline 重建**同几何**。旧版扇束 ASTRA（strip_fanflat 1000
-视角）→ 新版 skimage 平行束（720 视角），d_j 空间图案（金属背后阴影走向）随几何变。
-`d_j/d_ref` 是 scale-invariant（d_ref=训练集冻结 median 重新锚定），故平行束绝对量级无关，
-只要空间图案对。`regen_phys.py` 会自动删陈旧 `d_ref_*.npy` 缓存。
-
-### 安全边界
-
-本仓只含**解析管线**。全物理（CatSim/XCIST：`batch_simulate.py` / `generate_coil_3d_mask.py`
-/ `generate_training_data.py`）在另一条线，**不在此仓**，请勿在此混入或修改全物理代码。
+**它不预设模型。** 它是"上模型之前"的那一步——而这一步，决定了后面所有努力是否有意义。
 
 ---
 
----
+## 框架的核心工具（与 CT 无关）
 
-## 三份文档（V2.2 baseline 阶段）
-
-本仓只收录 **V2.2 baseline 阶段**：FIND-NET-1~5（度量）+ SSM-1~3（诊断）。
-更早阶段的记录保留在本地工作区，不在此仓。
-
-| 文档 | 内容 | 规模 |
+| 工具 | 作用 | 形式 |
 |---|---|---|
-| [`RESEARCH_LOG.md`](RESEARCH_LOG.md) | **科研日志**：数学抽象、推理、判断、对论文的含义 | 11 节 |
-| [`DATA_LOG.md`](DATA_LOG.md) | **数据日志**：数值、口径、验证、作废、产物索引 | 8 节 |
-| [`EXPERIMENTS_INDEX.md`](EXPERIMENTS_INDEX.md) | **实验索引**：8 个实验的入口与一句话结论 | — |
-| [`experiments/<编号>/`](experiments/) | **实验日志**：每个实验的 README + src + config + results | 8 个 |
+| **零空间** | 定位"信息丢在哪" | $\mathcal{N}=\ker(P_\Omega A)$ |
+| **第二通道** | 找到"还能从哪里补" | 相邻切片 / 相邻帧 / 另一模态 |
+| **可恢复性泛函** | 把"能恢复多少"变成一个数 | $\rho=\operatorname{corr}(HP(x'),HP(x))$ |
+| **信息稀释链** | 描述"信息沿链怎么衰减" | $\rho_{k+1}\approx\gamma\,\rho_k$，$\gamma<1$ |
+| **约束-保真张力** | 揭示"要历史"与"怕稀释"的对立 | 无免费午餐 |
 
-### 这一阶段在做什么
+**这一整套，只依赖两件事**：算子有非空零空间、输入可按"是否函数依赖于真值"分类。
+**与 CT、与金属、与 z、与神经网络都无关。**
 
-把「金属伪影去除」抽象为「**结构化测量缺失下的可恢复性分析**」：
+---
 
-- 测量算子存在**结构化零空间**（Hanson 1982 / Louis 1986）
-- 金属不制造"噪声"，而是制造一个**可预测的信息缺失子空间**
-- 于是问题不是"去噪"，是"**度量还能恢复多少、靠哪个通道补**"
+## 第一个案例：铂丝线圈 CT 的金属伪影去除（PRISM）
 
-### 核心数字（近环，σ=1）
+**为什么选它**：铂丝线圈（Pt-W，$\mu\approx7\ \text{mm}^{-1}$）是"测量缺失"的最极端情形——伪影携带的能量是目标组织高频的 **99 倍**，而观测与真值的相关只剩 **0.054**。
+
+在这个案例上，框架完整地走了一遍：
+
+| 框架步骤 | 案例中的落地 |
+|---|---|
+| 零空间多大 | 近环观测相关 0.054（$\rho^2=0.3\%$，99.7% 不可解释） |
+| 第二通道 | 相邻切片（z），相关 0.280 |
+| 最多能恢复多少 | z 只能覆盖「z-稳定结构」，上界 $\rho_z^2=7.8\%$ |
+| 重建/生成边界 | 细结构（σ=1）在边界之下，只能生成；粗结构（σ=16，0.678）在之上，可重建 |
+
+**核心数字（近环，σ=1）：**
 
 | 量 | 值 | 含义 |
 |---|---|---|
-| ρ_2D | **0.054** | 主通道在目标子空间内几乎为零（ρ²=0.3%，99.7% 不可解释） |
-| ρ_z | **0.280** | 第二通道（相邻切片）保留三成，且只覆盖 z-稳定结构 |
-| 现管线 | **0.105** | 捕获 z 的 40% |
-| 递归传递系数 | **0.60/片** | 金属跨 10 片时，最深处细节仅剩 8% |
+| $\rho_{2D}$ | **0.054** | 主通道几乎为零（99.7% 不可解释） |
+| $\rho_z$ | **0.280** | 第二通道保留三成，且只覆盖 z-稳定结构 |
+| 现有递归 | **0.105** | 只取到 z 上界的 40% |
+| 稀释系数 $\gamma$ | **0.60/片** | 金属跨 10 片时，最深处细节仅剩 8% |
 
-### 一条线读下来
-
-1. 2D 在近环**没有信息**（FIND-NET-4）
-2. 失败是「**假**」不是「糊」，且集中在金属外 8–30px（FIND-NET-3）
-3. 不是"填充均值"——**比均值填充还差 5.3 倍**（FIND-NET-5）
-4. 唯一剩下的通道是 **z**（FIND-NET-4）
-5. 现有递归只取到 40%，**因为传递每片 ×0.6**（SSM-1 / SSM-3）
-6. **改损失函数无效**（SSM-2：赢 14/21 项，唯独输掉靶心）
-
-> ⇒ 下一刀必须砍在**递归的状态传递**，不是损失函数。
+**这一条链读下来**：2D 没有信息（0.054）→ 失败是「假」不是「糊」→ 唯一通道是 z（0.280）→ 递归只取到 40%（0.105）→ 因为传递每片 ×0.60 → **改损失函数无效，瓶颈在传递，不在出口**。
 
 ---
+
+## 仓库结构
+
+| 路径 | 内容 |
+|---|---|
+| [`RESEARCH_LOG.md`](RESEARCH_LOG.md) | **科研日志**：数学抽象、推理、判断（含 Mech 工作纪律 + 信息稀释链总纲） |
+| [`DATA_LOG.md`](DATA_LOG.md) | **数据日志**：全部数值、口径、验证、作废记录、产物索引 |
+| [`EXPERIMENTS_INDEX.md`](EXPERIMENTS_INDEX.md) | **实验索引**：8 个 baseline 实验 + Mech 系列的一句话结论 |
+| [`experiments/`](experiments/) | **实验日志**：每个实验的 README + src + config + results（表+图） |
+| [`prism/`](prism/) | SSM 框架代码（`kalman/`、`recursion/`、`models/`、`eval/domain.py` 评分域真源） |
+| [`analytic_sim/`](analytic_sim/) | 解析仿真数据生成（平行束 720 视角，PSF σ=6.0 全尺寸统一） |
+
+---
+
+## 可迁移性：同一套推理，换一个场景原样成立
+
+| 场景 | 第一通道（被摧毁） | 第二通道（零空间不重合） |
+|---|---|---|
+| CT 金属伪影（本案例） | 本片重建 | 相邻切片 |
+| 时序观测 | 失效帧 | 相邻帧 |
+| 多视角成像 | 被遮挡视角 | 其余视角 |
+| 多模态融合 | 失效模态 | 另一模态 |
+| 能谱成像 | 饱和能段 | 其他能段 |
+
+> **换掉测量算子、换掉缺失模式、换掉第二通道——框架的推理与实验设计原样成立。**
+
+---
+
+## 数据生成（`analytic_sim/`）
+
+解析仿真管线：skimage 平行束（radon/iradon）自包含地生成成对 MAR 数据
+（Baseline / LI / d_j / g），是 SSM 训练侧「解析域」的唯一数据来源。
+
+物理管线（`parallel_beam.py` 单一真源）：
+
+```
+L_tissue = radon((1-mask)·hu2mu(clean))·PIXEL_MM    组织线积分
+L_metal  = radon(mask·METAL_MU)·PIXEL_MM            金属线积分
+L = L_tissue + L_metal
+I = I0·exp(−L)
+I_noisy = poisson(I) + N(0, σ_e)                    光子 + 电子噪声地板
+L_noisy = −log(I_noisy/I0)
+L_noisy ← L_noisy + N(0, σ_starve)·1{L>L_starve}    光子饥饿阴影区噪声
+L_noisy ← gaussian_filter1d(L_noisy, σ=PSF)         角度轴 PSF 模糊
+```
+
+| 常量 | 值 |
+|---|---|
+| PSF | **σ = 6.0（全尺寸统一，2026-11-21 定案）** |
+| σ_e | 20 |
+| β_bh | 1.5e-2 |
+| σ_starve | 3.0 |
+| I0 | 1e5 |
+| METAL_MU | 7.02 mm⁻¹ |
+
+> 全物理（CatSim/XCIST）线路在另一条线，**不在此仓**。
+
+---
+
+## 一句话
+
+> **这里展示的不是"一个金属伪影去除项目"，而是一个可迁移的研究方向：
+> 在观测被结构化摧毁的逆问题里，先用零空间、第二通道、可恢复性泛函，
+> 算出"能不能、能多少、为什么不能更多"，再决定怎么做。
+> CT 是它的第一个完整案例——不是它的边界。**
